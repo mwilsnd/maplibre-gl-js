@@ -14,10 +14,10 @@ import {LngLat} from '../geo/lng_lat';
 import {MAX_TILE_ZOOM, MIN_TILE_ZOOM} from '../util/util';
 
 describe('Terrain', () => {
-    let gl: WebGLRenderingContext;
+    let gl: WebGL2RenderingContext;
 
     beforeEach(() => {
-        gl = document.createElement('canvas').getContext('webgl');
+        gl = document.createElement('canvas').getContext('webgl2');
         vi.spyOn(gl, 'checkFramebufferStatus').mockReturnValue(gl.FRAMEBUFFER_COMPLETE);
         vi.spyOn(gl, 'readPixels').mockImplementation((_1, _2, _3, _4, _5, _6, rgba) => {
             rgba[0] = 0;

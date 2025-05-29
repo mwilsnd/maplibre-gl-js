@@ -5,10 +5,10 @@ import {Context} from '../gl/context';
 import {type StructArrayMember} from '../util/struct_array';
 
 describe('VertexBuffer', () => {
-    let gl: WebGLRenderingContext;
+    let gl: WebGL2RenderingContext;
 
     beforeEach(() => {
-        gl = document.createElement('canvas').getContext('webgl');
+        gl = document.createElement('canvas').getContext('webgl2');
     });
 
     class TestArray extends StructArrayLayout3i6 {}

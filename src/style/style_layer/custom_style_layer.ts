@@ -111,7 +111,7 @@ export type CustomRenderMethodInput = {
  * @param gl - The map's gl context.
  * @param options - Argument object with render inputs like camera properties.
  */
-type CustomRenderMethod = (gl: WebGLRenderingContext|WebGL2RenderingContext, options: CustomRenderMethodInput) => void;
+type CustomRenderMethod = (gl: WebGL2RenderingContext, options: CustomRenderMethodInput) => void;
 
 /**
  * Interface for custom style layers. This is a specification for
@@ -222,7 +222,7 @@ export interface CustomLayerInterface {
      * @param map - The Map this custom layer was just added to.
      * @param gl - The gl context for the map.
      */
-    onAdd?(map: Map, gl: WebGLRenderingContext | WebGL2RenderingContext): void;
+    onAdd?(map: Map, gl: WebGL2RenderingContext): void;
     /**
      * Optional method called when the layer has been removed from the Map with {@link Map#removeLayer}. This
      * gives the layer a chance to clean up gl resources and event listeners.
@@ -230,7 +230,7 @@ export interface CustomLayerInterface {
      * @param map - The Map this custom layer was just added to.
      * @param gl - The gl context for the map.
      */
-    onRemove?(map: Map, gl: WebGLRenderingContext | WebGL2RenderingContext): void;
+    onRemove?(map: Map, gl: WebGL2RenderingContext): void;
 }
 
 export function validateCustomStyleLayer(layerObject: CustomLayerInterface) {

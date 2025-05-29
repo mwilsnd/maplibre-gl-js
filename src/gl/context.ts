@@ -15,7 +15,6 @@ import type {
     StructArrayMember
 } from '../util/struct_array';
 import type {Color} from '@maplibre/maplibre-gl-style-spec';
-import {isWebGL2} from './webgl2';
 
 type ClearArgs = {
     color?: Color;
@@ -28,7 +27,7 @@ type ClearArgs = {
  * A webgl wrapper class to allow injection, mocking and abstaction
  */
 export class Context {
-    gl: WebGLRenderingContext | WebGL2RenderingContext;
+    gl: WebGL2RenderingContext;
 
     currentNumAttributes: number;
     maxTextureSize: number;
@@ -71,7 +70,7 @@ export class Context {
     RGBA16F?: GLenum;
     RGB16F?: GLenum;
 
-    constructor(gl: WebGLRenderingContext | WebGL2RenderingContext) {
+    constructor(gl: WebGL2RenderingContext) {
         this.gl = gl;
         this.clearColor = new ClearColor(this);
         this.clearDepth = new ClearDepth(this);
@@ -117,18 +116,11 @@ export class Context {
 
         this.maxTextureSize = gl.getParameter(gl.MAX_TEXTURE_SIZE);
 
-        if (isWebGL2(gl)) {
-            this.HALF_FLOAT = gl.HALF_FLOAT;
-            const extColorBufferHalfFloat = gl.getExtension('EXT_color_buffer_half_float');
-            this.RGBA16F = gl.RGBA16F ?? extColorBufferHalfFloat?.RGBA16F_EXT;
-            this.RGB16F = gl.RGB16F ?? extColorBufferHalfFloat?.RGB16F_EXT;
-            gl.getExtension('EXT_color_buffer_float');
-        } else {
-            gl.getExtension('EXT_color_buffer_half_float');
-            gl.getExtension('OES_texture_half_float_linear');
-            const extTextureHalfFloat = gl.getExtension('OES_texture_half_float');
-            this.HALF_FLOAT = extTextureHalfFloat?.HALF_FLOAT_OES;
-        }
+        this.HALF_FLOAT = gl.HALF_FLOAT;
+        const extColorBufferHalfFloat = gl.getExtension('EXT_color_buffer_half_float');
+        this.RGBA16F = gl.RGBA16F ?? extColorBufferHalfFloat?.RGBA16F_EXT;
+        this.RGB16F = gl.RGB16F ?? extColorBufferHalfFloat?.RGB16F_EXT;
+        gl.getExtension('EXT_color_buffer_float');
     }
 
     setDefault() {
@@ -301,15 +293,11 @@ export class Context {
     }
 
     createVertexArray(): WebGLVertexArrayObject | undefined {
-        if (isWebGL2(this.gl))
-            return this.gl.createVertexArray();
-        return this.gl.getExtension('OES_vertex_array_object')?.createVertexArrayOES();
+        return this.gl.createVertexArray();
     }
 
     deleteVertexArray(x: WebGLVertexArrayObject | undefined) {
-        if (isWebGL2(this.gl))
-            return this.gl.deleteVertexArray(x);
-        return this.gl.getExtension('OES_vertex_array_object')?.deleteVertexArrayOES(x);
+        return this.gl.deleteVertexArray(x);
     }
 
     unbindVAO() {

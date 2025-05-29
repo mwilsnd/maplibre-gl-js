@@ -10,7 +10,6 @@ import {SegmentVector} from '../../data/segment';
 import {PosArray, TriangleIndexArray} from '../../data/array_types.g';
 import posAttributes from '../../data/pos_attributes';
 import {type Framebuffer} from '../../gl/framebuffer';
-import {isWebGL2} from '../../gl/webgl2';
 import {type ProjectionGPUContext} from './projection';
 
 /**
@@ -110,12 +109,10 @@ export class ProjectionErrorMeasurement {
         this._fbo = context.createFramebuffer(this._texWidth, this._texHeight, false, false);
         this._fbo.colorAttachment.set(texture);
 
-        if (isWebGL2(gl)) {
-            this._pbo = gl.createBuffer();
-            gl.bindBuffer(gl.PIXEL_PACK_BUFFER, this._pbo);
-            gl.bufferData(gl.PIXEL_PACK_BUFFER, 4, gl.STREAM_READ);
-            gl.bindBuffer(gl.PIXEL_PACK_BUFFER, null);
-        }
+        this._pbo = gl.createBuffer();
+        gl.bindBuffer(gl.PIXEL_PACK_BUFFER, this._pbo);
+        gl.bufferData(gl.PIXEL_PACK_BUFFER, 4, gl.STREAM_READ);
+        gl.bindBuffer(gl.PIXEL_PACK_BUFFER, null);
     }
 
     public destroy() {
@@ -175,7 +172,7 @@ export class ProjectionErrorMeasurement {
             '$clipping', this._fullscreenTriangle.vertexBuffer, this._fullscreenTriangle.indexBuffer,
             this._fullscreenTriangle.segments);
 
-        if (this._pbo && isWebGL2(gl)) {
+        if (this._pbo) {
             // Read back into PBO
             gl.bindBuffer(gl.PIXEL_PACK_BUFFER, this._pbo);
             gl.readBuffer(gl.COLOR_ATTACHMENT0);
@@ -200,7 +197,7 @@ export class ProjectionErrorMeasurement {
     private _tryReadback(): void {
         const gl = this._cachedRenderContext.context.gl;
 
-        if (this._pbo && this._readbackQueue && isWebGL2(gl)) {
+        if (this._pbo && this._readbackQueue) {
             // WebGL 2 path
             const waitResult = gl.clientWaitSync(this._readbackQueue.sync, 0, 0);
 

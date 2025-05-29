@@ -3,7 +3,7 @@ export const webpSupported = {
     testSupport
 };
 
-let glForTesting: WebGLRenderingContext|WebGL2RenderingContext;
+let glForTesting: WebGL2RenderingContext;
 let webpCheckComplete = false;
 let webpImgTest;
 let webpImgTestOnloadComplete = false;
@@ -22,7 +22,7 @@ if (typeof document !== 'undefined') {
     webpImgTest.src = 'data:image/webp;base64,UklGRh4AAABXRUJQVlA4TBEAAAAvAQAAAAfQ//73v/+BiOh/AAA=';
 }
 
-function testSupport(gl: WebGLRenderingContext | WebGL2RenderingContext) {
+function testSupport(gl: WebGL2RenderingContext) {
     if (webpCheckComplete || !webpImgTest) return;
 
     // HTMLImageElement.complete is set when an image is done loading it's source
@@ -39,7 +39,7 @@ function testSupport(gl: WebGLRenderingContext | WebGL2RenderingContext) {
     }
 }
 
-function testWebpTextureUpload(gl: WebGLRenderingContext|WebGL2RenderingContext) {
+function testWebpTextureUpload(gl: WebGL2RenderingContext) {
     // Edge 18 supports WebP but not uploading a WebP image to a gl texture
     // Test support for this before allowing WebP images.
     // https://github.com/mapbox/mapbox-gl-js/issues/7671

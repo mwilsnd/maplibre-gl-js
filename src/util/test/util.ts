@@ -108,15 +108,12 @@ export function beforeMapTest() {
     setPerformance();
     setMatchMedia();
     setResizeObserver();
-    // remove the following when the following is merged and released: https://github.com/Adamfsk/jest-webgl-canvas-mock/pull/5
-    (WebGLRenderingContext.prototype as any).bindVertexArray = WebGLRenderingContext.prototype.getExtension('OES_vertex_array_object').bindVertexArrayOES;
-    (WebGLRenderingContext.prototype as any).createVertexArray = WebGLRenderingContext.prototype.getExtension('OES_vertex_array_object').createVertexArrayOES;
-    if (!WebGLRenderingContext.prototype.drawingBufferHeight && !WebGLRenderingContext.prototype.drawingBufferWidth) {
-        Object.defineProperty(WebGLRenderingContext.prototype, 'drawingBufferWidth', {
+    if (!WebGL2RenderingContext.prototype.drawingBufferHeight && !WebGL2RenderingContext.prototype.drawingBufferWidth) {
+        Object.defineProperty(WebGL2RenderingContext.prototype, 'drawingBufferWidth', {
             get: vi.fn(),
             configurable: true,
         });
-        Object.defineProperty(WebGLRenderingContext.prototype, 'drawingBufferHeight', {
+        Object.defineProperty(WebGL2RenderingContext.prototype, 'drawingBufferHeight', {
             get: vi.fn(),
             configurable: true,
         });
