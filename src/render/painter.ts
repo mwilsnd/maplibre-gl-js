@@ -96,9 +96,6 @@ export class Painter {
     width: number;
     height: number;
     pixelRatio: number;
-    tileExtentBuffer: VertexBuffer;
-    tileExtentSegments: SegmentVector;
-    tileExtentMesh: Mesh;
 
     debugBuffer: VertexBuffer;
     debugSegments: SegmentVector;
@@ -171,14 +168,6 @@ export class Painter {
     setup() {
         const context = this.context;
 
-        const tileExtentArray = new PosArray();
-        tileExtentArray.emplaceBack(0, 0);
-        tileExtentArray.emplaceBack(EXTENT, 0);
-        tileExtentArray.emplaceBack(0, EXTENT);
-        tileExtentArray.emplaceBack(EXTENT, EXTENT);
-        this.tileExtentBuffer = context.createVertexBuffer(tileExtentArray, posAttributes.members);
-        this.tileExtentSegments = SegmentVector.simpleSegment(0, 0, 4, 2);
-
         const debugArray = new PosArray();
         debugArray.emplaceBack(0, 0);
         debugArray.emplaceBack(EXTENT, 0);
@@ -226,8 +215,6 @@ export class Painter {
 
         const gl = this.context.gl;
         this.stencilClearMode = new StencilMode({func: gl.ALWAYS, mask: 0}, 0x0, 0xFF, gl.ZERO, gl.ZERO, gl.ZERO);
-
-        this.tileExtentMesh = new Mesh(this.tileExtentBuffer, this.quadTriangleIndexBuffer, this.tileExtentSegments);
     }
 
     /*
