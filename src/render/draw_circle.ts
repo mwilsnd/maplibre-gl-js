@@ -101,11 +101,11 @@ export function drawCirclesLuma(painter: Painter, sourceCache: SourceCache, laye
                 'u_projection_transition': 'f32'
             },
             {
-                'u_projection_matrix': projectionData.mainMatrix,
-                'u_projection_fallback_matrix': projectionData.fallbackMatrix,
-                'u_projection_tile_mercator_coords': projectionData.tileMercatorCoords,
-                'u_projection_clipping_plane': projectionData.clippingPlane,
-                'u_projection_transition': projectionData.projectionTransition
+                'u_projection_matrix': projectionData.mainMatrix as any as number[],
+                'u_projection_fallback_matrix': projectionData.fallbackMatrix as any as number[],
+                'u_projection_tile_mercator_coords': projectionData.tileMercatorCoords as any as number[],
+                'u_projection_clipping_plane': projectionData.clippingPlane as any as number[],
+                'u_projection_transition': projectionData.projectionTransition as any as number[]
             }
         );
 
