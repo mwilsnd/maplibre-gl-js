@@ -1,4 +1,4 @@
-import {type PreparedShader, shaders, transpileVertexShaderToWebGL1, transpileFragmentShaderToWebGL1} from '../shaders/shaders';
+import {type PreparedShader, shaders} from '../shaders/shaders';
 import {type ProgramConfiguration} from '../data/program_configuration';
 import {VertexArrayObject} from './vertex_array_object';
 import {type Context} from '../gl/context';
@@ -16,6 +16,8 @@ import {terrainPreludeUniforms, type TerrainPreludeUniformsType} from './program
 import type {TerrainData} from '../render/terrain';
 import {projectionObjectToUniformMap, type ProjectionPreludeUniformsType, projectionUniforms} from './program/projection_program';
 import type {ProjectionData} from '../geo/projection/projection_data';
+
+import {type Shader} from '@luma.gl/core';
 
 export type DrawMode = WebGLRenderingContextBase['LINES'] | WebGLRenderingContextBase['TRIANGLES'] | WebGL2RenderingContext['LINE_STRIP'];
 
@@ -35,6 +37,9 @@ function getTokenizedAttributesAndUniforms(array: Array<string>): Array<string> 
  * A webgl program to execute in the GPU space
  */
 export class Program<Us extends UniformBindings> {
+    vertexShader: Shader;
+    fragmentShader: Shader;
+
     program: WebGLProgram;
     attributes: {[_: string]: number};
     numAttributes: number;
@@ -52,7 +57,8 @@ export class Program<Us extends UniformBindings> {
         hasTerrain: boolean,
         projectionPrelude: PreparedShader,
         projectionDefine: string,
-        extraDefines: Array<string> = []) {
+        extraDefines: Array<string> = [],
+        lumaMode: boolean = false) {
 
         const gl = context.gl;
         this.program = gl.createProgram();
@@ -65,6 +71,7 @@ export class Program<Us extends UniformBindings> {
         const projectionPreludeUniformsInfo = projectionPrelude.staticUniforms ? getTokenizedAttributesAndUniforms(projectionPrelude.staticUniforms) : [];
         const staticUniformsInfo = source.staticUniforms ? getTokenizedAttributesAndUniforms(source.staticUniforms) : [];
         const dynamicUniformsInfo = configuration ? configuration.getBinderUniforms() : [];
+
         // remove duplicate uniforms
         const uniformList = preludeUniformsInfo.concat(projectionPreludeUniformsInfo).concat(staticUniformsInfo).concat(dynamicUniformsInfo);
         const allUniformsInfo = [];
@@ -88,77 +95,91 @@ export class Program<Us extends UniformBindings> {
             defines.push(...extraDefines);
         }
 
-        let fragmentSource = defines.concat(shaders.prelude.fragmentSource, projectionPrelude.fragmentSource, source.fragmentSource).join('\n');
-        let vertexSource = defines.concat(shaders.prelude.vertexSource, projectionPrelude.vertexSource, source.vertexSource).join('\n');
-        fragmentSource = transpileFragmentShaderToWebGL1(fragmentSource);
-        vertexSource = transpileVertexShaderToWebGL1(vertexSource);
+        const fragmentSource = defines.concat(lumaMode ? shaders.luma_prelude.fragmentSource : shaders.prelude.fragmentSource, projectionPrelude.fragmentSource, source.fragmentSource).join('\n');
+        const vertexSource = defines.concat(lumaMode ? shaders.luma_prelude.vertexSource : shaders.prelude.vertexSource, projectionPrelude.vertexSource, source.vertexSource).join('\n');
 
-        const fragmentShader = gl.createShader(gl.FRAGMENT_SHADER);
-        if (gl.isContextLost()) {
-            this.failedToCreate = true;
-            return;
-        }
-        gl.shaderSource(fragmentShader, fragmentSource);
-        gl.compileShader(fragmentShader);
+        this.vertexShader = context.device.createShader({
+            language: 'glsl',
+            stage: 'vertex',
+            source: vertexSource,
+        });
 
-        if (!gl.getShaderParameter(fragmentShader, gl.COMPILE_STATUS)) {
-            throw new Error(`Could not compile fragment shader: ${gl.getShaderInfoLog(fragmentShader)}`);
-        }
+        this.fragmentShader = context.device.createShader({
+            language: 'glsl',
+            stage: 'fragment',
+            source: fragmentSource,
+        });
 
-        gl.attachShader(this.program, fragmentShader);
-
-        const vertexShader = gl.createShader(gl.VERTEX_SHADER);
-        if (gl.isContextLost()) {
-            this.failedToCreate = true;
-            return;
-        }
-        gl.shaderSource(vertexShader, vertexSource);
-        gl.compileShader(vertexShader);
-
-        if (!gl.getShaderParameter(vertexShader, gl.COMPILE_STATUS)) {
-            throw new Error(`Could not compile vertex shader: ${gl.getShaderInfoLog(vertexShader)}`);
-        }
-
-        gl.attachShader(this.program, vertexShader);
-
-        this.attributes = {};
-        const uniformLocations = {};
-
-        this.numAttributes = allAttrInfo.length;
-
-        for (let i = 0; i < this.numAttributes; i++) {
-            if (allAttrInfo[i]) {
-                gl.bindAttribLocation(this.program, i, allAttrInfo[i]);
-                this.attributes[allAttrInfo[i]] = i;
+        {
+            const fragmentShader = gl.createShader(gl.FRAGMENT_SHADER);
+            if (gl.isContextLost()) {
+                this.failedToCreate = true;
+                return;
             }
-        }
+            gl.shaderSource(fragmentShader, fragmentSource);
+            gl.compileShader(fragmentShader);
 
-        gl.linkProgram(this.program);
+            if (!gl.getShaderParameter(fragmentShader, gl.COMPILE_STATUS)) {
+                console.log(fragmentSource);
+                throw new Error(`Could not compile fragment shader: ${gl.getShaderInfoLog(fragmentShader)}`);
+            }
 
-        if (!gl.getProgramParameter(this.program, gl.LINK_STATUS)) {
-            throw new Error(`Program failed to link: ${gl.getProgramInfoLog(this.program)}`);
-        }
+            gl.attachShader(this.program, fragmentShader);
 
-        gl.deleteShader(vertexShader);
-        gl.deleteShader(fragmentShader);
+            const vertexShader = gl.createShader(gl.VERTEX_SHADER);
+            if (gl.isContextLost()) {
+                this.failedToCreate = true;
+                return;
+            }
+            gl.shaderSource(vertexShader, vertexSource);
+            gl.compileShader(vertexShader);
 
-        for (let it = 0; it < allUniformsInfo.length; it++) {
-            const uniform = allUniformsInfo[it];
-            if (uniform && !uniformLocations[uniform]) {
-                const uniformLocation = gl.getUniformLocation(this.program, uniform);
-                if (uniformLocation) {
-                    uniformLocations[uniform] = uniformLocation;
+            if (!gl.getShaderParameter(vertexShader, gl.COMPILE_STATUS)) {
+                throw new Error(`Could not compile vertex shader: ${gl.getShaderInfoLog(vertexShader)}`);
+            }
+
+            gl.attachShader(this.program, vertexShader);
+
+            this.attributes = {};
+            const uniformLocations = {};
+
+            this.numAttributes = allAttrInfo.length;
+
+            for (let i = 0; i < this.numAttributes; i++) {
+                if (allAttrInfo[i]) {
+                    gl.bindAttribLocation(this.program, i, allAttrInfo[i]);
+                    this.attributes[allAttrInfo[i]] = i;
                 }
             }
-        }
 
-        this.fixedUniforms = fixedUniforms(context, uniformLocations);
-        this.terrainUniforms = terrainPreludeUniforms(context, uniformLocations);
-        this.projectionUniforms = projectionUniforms(context, uniformLocations);
-        this.binderUniforms = configuration ? configuration.getUniforms(context, uniformLocations) : [];
+            gl.linkProgram(this.program);
+
+            if (!gl.getProgramParameter(this.program, gl.LINK_STATUS)) {
+                throw new Error(`Program failed to link: ${gl.getProgramInfoLog(this.program)}`);
+            }
+
+            gl.deleteShader(vertexShader);
+            gl.deleteShader(fragmentShader);
+
+            for (let it = 0; it < allUniformsInfo.length; it++) {
+                const uniform = allUniformsInfo[it];
+                if (uniform && !uniformLocations[uniform]) {
+                    const uniformLocation = gl.getUniformLocation(this.program, uniform);
+                    if (uniformLocation) {
+                        uniformLocations[uniform] = uniformLocation;
+                    }
+                }
+            }
+
+            this.fixedUniforms = fixedUniforms(context, uniformLocations);
+            this.terrainUniforms = terrainPreludeUniforms(context, uniformLocations);
+            this.projectionUniforms = projectionUniforms(context, uniformLocations);
+            this.binderUniforms = configuration ? configuration.getUniforms(context, uniformLocations) : [];
+        }
     }
 
-    draw(context: Context,
+    draw(
+        context: Context,
         drawMode: DrawMode,
         depthMode: Readonly<DepthMode>,
         stencilMode: Readonly<StencilMode>,

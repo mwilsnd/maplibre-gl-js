@@ -28,7 +28,7 @@ export function drawLine(painter: Painter, sourceCache: SourceCache, layer: Line
 
     const depthMode = painter.getDepthModeForSublayer(0, DepthMode.ReadOnly);
     const colorMode = painter.colorModeForRenderPass();
-    
+
     const dasharray = layer.paint.get('line-dasharray');
     const patternProperty = layer.paint.get('line-pattern');
     const image = patternProperty.constantOr(1 as any);
@@ -85,7 +85,7 @@ export function drawLine(painter: Painter, sourceCache: SourceCache, layer: Line
         if (image) {
             context.activeTexture.set(gl.TEXTURE0);
             tile.imageAtlasTexture.bind(gl.LINEAR, gl.CLAMP_TO_EDGE);
-            programConfiguration.updatePaintBuffers(crossfade);
+            programConfiguration.updatePaintBuffers(context, crossfade);
         } else if (dasharray && (programChanged || painter.lineAtlas.dirty)) {
             context.activeTexture.set(gl.TEXTURE0);
             painter.lineAtlas.bind(context);

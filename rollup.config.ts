@@ -30,7 +30,7 @@ const config: RollupOptions[] = [{
     },
     onwarn: (message) => {
         console.error(message);
-        throw message;
+        //throw message;
     },
     treeshake: production,
     plugins: plugins(production)

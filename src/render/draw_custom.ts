@@ -23,7 +23,7 @@ export function drawCustom(painter: Painter, sourceCache: SourceCache, layer: Cu
         projectionMatrix: transform.projectionMatrix,
         shaderData: {
             variantName: projection.shaderVariantName,
-            vertexShaderPrelude: `const float PI = 3.141592653589793;\nuniform mat4 u_projection_matrix;\n${projection.shaderPreludeCode.vertexSource}`,
+            vertexShaderPrelude: `const float PI = 3.141592653589793;\nuniform mat4 u_projection_matrix;\n${projection.shaderPreludeCode(false).vertexSource}`,
             define: projection.shaderDefine,
         },
         defaultProjectionData: projectionData,

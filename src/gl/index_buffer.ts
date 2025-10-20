@@ -3,6 +3,8 @@ import type {StructArray} from '../util/struct_array';
 import type {TriangleIndexArray, LineIndexArray, LineStripIndexArray} from '../data/index_array_type';
 import type {Context} from '../gl/context';
 
+import {Buffer} from '@luma.gl/core';
+
 /**
  * @internal
  * an index buffer class
@@ -11,9 +13,11 @@ export class IndexBuffer {
     context: Context;
     buffer: WebGLBuffer;
     dynamicDraw: boolean;
+    lumaBuffer: Buffer;
 
     constructor(context: Context, array: TriangleIndexArray | LineIndexArray | LineStripIndexArray, dynamicDraw?: boolean) {
         this.context = context;
+
         const gl = context.gl;
         this.buffer = gl.createBuffer();
         this.dynamicDraw = Boolean(dynamicDraw);
@@ -22,6 +26,13 @@ export class IndexBuffer {
         // modify whatever VAO happens to be currently bound, so make sure the default
         // vertex array provided by the context is bound instead.
         this.context.unbindVAO();
+
+        this.lumaBuffer = context.device.createBuffer({
+            data: array.uint8.slice(0, array.length * array.bytesPerElement),
+            byteLength: array.length * array.bytesPerElement,
+            usage: Buffer.INDEX,
+            indexType: 'uint16'
+        });
 
         context.bindElementBuffer.set(this.buffer);
         gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, array.arrayBuffer, this.dynamicDraw ? gl.DYNAMIC_DRAW : gl.STATIC_DRAW);
@@ -38,11 +49,19 @@ export class IndexBuffer {
     updateData(array: StructArray) {
         const gl = this.context.gl;
         if (!this.dynamicDraw) throw new Error('Attempted to update data while not in dynamic mode.');
+
         // The right VAO will get this buffer re-bound later in VertexArrayObject.bind
         // See https://github.com/mapbox/mapbox-gl-js/issues/5620
         this.context.unbindVAO();
+        
+        this.lumaBuffer.write(array.uint8);
+
         this.bind();
         gl.bufferSubData(gl.ELEMENT_ARRAY_BUFFER, 0, array.arrayBuffer);
+    }
+
+    getLumaBuffer(): Buffer {
+        return this.lumaBuffer;
     }
 
     destroy() {

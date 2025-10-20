@@ -16,13 +16,13 @@ function glslToTs(code: string): string {
     code = code
         .trim() // strip whitespace at the start/end
         .replace(/\s*\/\/[^\n]*\n/g, '\n') // strip double-slash comments
-        .replace(/\n+/g, '\n') // collapse multi line breaks
-        .replace(/\n\s+/g, '\n') // strip indentation
-        .replace(/\s?([+-\/*=,])\s?/g, '$1') // strip whitespace around operators
-        .replace(/([;\(\),\{\}])\n(?=[^#])/g, '$1'); // strip more line breaks
+        //.replace(/\n+/g, '\n') // collapse multi line breaks
+        //.replace(/\n\s+/g, '\n') // strip indentation
+        //.replace(/\s?([+-\/*=,])\s?/g, '$1') // strip whitespace around operators
+        //.replace(/([;\(\),\{\}])\n(?=[^#])/g, '$1'); // strip more line breaks
 
     return `// This file is generated. Edit build/generate-shaders.ts, then run \`npm run codegen\`.
-export default ${JSON.stringify(code).replaceAll('"', '\'')};\n`;
+export default \`` + code.replaceAll('\`', '\\\`')/*.replaceAll('"', '\'')*/ + `\`;\n`;
 }
 
 const shaderFiles = globSync('./src/shaders/*.glsl');

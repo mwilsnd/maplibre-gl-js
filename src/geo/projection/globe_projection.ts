@@ -86,12 +86,12 @@ export class GlobeProjection extends Evented implements Projection {
         return this.currentProjection.shaderDefine;
     }
 
-    get shaderPreludeCode(): PreparedShader {
-        return this.currentProjection.shaderPreludeCode;
+    shaderPreludeCode(luma: boolean): PreparedShader {
+        return this.currentProjection.shaderPreludeCode(luma);
     }
 
-    get vertexShaderPreludeCode(): string {
-        return this.currentProjection.vertexShaderPreludeCode;
+    vertexShaderPreludeCode(luma: boolean): string {
+        return this.currentProjection.vertexShaderPreludeCode(luma);
     }
 
     get subdivisionGranularity(): SubdivisionGranularitySetting {
@@ -132,7 +132,7 @@ export class GlobeProjection extends Evented implements Projection {
         this.properties = this._transitioning.possiblyEvaluate(parameters);
     }
 
-    setErrorQueryLatitudeDegrees(value: number) { 
+    setErrorQueryLatitudeDegrees(value: number) {
         this._verticalPerspectiveProjection.setErrorQueryLatitudeDegrees(value);
         this._mercatorProjection.setErrorQueryLatitudeDegrees(value);
     }

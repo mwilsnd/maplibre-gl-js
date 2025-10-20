@@ -19,7 +19,7 @@ import {CullFaceMode} from '../gl/cull_face_mode';
 import {Texture} from './texture';
 import {Color} from '@maplibre/maplibre-gl-style-spec';
 import {drawSymbols} from './draw_symbol';
-import {drawCircles} from './draw_circle';
+import {drawCircles, drawCirclesLuma} from './draw_circle';
 import {drawHeatmap} from './draw_heatmap';
 import {drawLine} from './draw_line';
 import {drawFill} from './draw_fill';
@@ -62,6 +62,9 @@ import {isRasterStyleLayer} from '../style/style_layer/raster_style_layer';
 import {isBackgroundStyleLayer} from '../style/style_layer/background_style_layer';
 import {isCustomStyleLayer} from '../style/style_layer/custom_style_layer';
 
+import {Device, type RenderPass as LumaPass} from '@luma.gl/core';
+import {webgl2Adapter} from '@luma.gl/webgl';
+
 export type RenderPass = 'offscreen' | 'opaque' | 'translucent';
 
 type PainterOptions = {
@@ -84,6 +87,8 @@ export type RenderOptions = {
  * Initialize a new painter object.
  */
 export class Painter {
+    pendingDevice?: Promise<void>;
+
     context: Context;
     transform: IReadonlyTransform;
     renderToTexture: RenderToTexture;
@@ -137,11 +142,16 @@ export class Painter {
 
     constructor(gl: WebGL2RenderingContext, transform: IReadonlyTransform) {
         this.context = new Context(gl);
+
+        this.pendingDevice = webgl2Adapter.attach(gl).then((device: Device) => {
+            this.pendingDevice = null;
+            this.context.device = device;
+            this.setup();
+        });
+
         this.transform = transform;
         this._tileTextures = {};
         this.terrainFacilitator = {dirty: true, matrix: mat4.identity(new Float64Array(16) as any), renderTime: 0};
-
-        this.setup();
 
         // Within each layer there are multiple distinct z-planes that can be drawn to.
         // This is implemented using the WebGL depth buffer.
@@ -477,6 +487,10 @@ export class Painter {
     }
 
     render(style: Style, options: PainterOptions) {
+        if (!this.context.device) {
+            return;
+        }
+
         this.style = style;
         this.options = options;
 
@@ -516,114 +530,182 @@ export class Painter {
             }
         }
 
-        this.maybeDrawDepthAndCoords(false);
+        const renderLegacy = () => {
+            this.maybeDrawDepthAndCoords(false);
 
-        if (this.renderToTexture) {
-            this.renderToTexture.prepareForRender(this.style, this.transform.zoom);
-            // this is disabled, because render-to-texture is rendering all layers from bottom to top.
-            this.opaquePassCutoff = 0;
-        }
-
-        // Offscreen pass ===============================================
-        // We first do all rendering that requires rendering to a separate
-        // framebuffer, and then save those for rendering back to the map
-        // later: in doing this we avoid doing expensive framebuffer restores.
-        this.renderPass = 'offscreen';
-
-        for (const layerId of layerIds) {
-            const layer = this.style._layers[layerId];
-            if (!layer.hasOffscreenPass() || layer.isHidden(this.transform.zoom)) continue;
-
-            const coords = coordsDescending[layer.source];
-            if (layer.type !== 'custom' && !coords.length) continue;
-
-            this.renderLayer(this, sourceCaches[layer.source], layer, coords, renderOptions);
-        }
-
-        // Execute offscreen GPU tasks of the projection manager
-        this.style.projection?.updateGPUdependent({
-            context: this.context,
-            useProgram: (name: string) => this.useProgram(name)
-        });
-
-        // Rebind the main framebuffer now that all offscreen layers have been rendered:
-        this.context.viewport.set([0, 0, this.width, this.height]);
-        this.context.bindFramebuffer.set(null);
-
-        // Clear buffers in preparation for drawing to the main framebuffer
-        this.context.clear({color: options.showOverdrawInspector ? Color.black : Color.transparent, depth: 1});
-        this.clearStencil();
-
-        // draw sky first to not overwrite symbols
-        if (this.style.sky) drawSky(this, this.style.sky);
-
-        this._showOverdrawInspector = options.showOverdrawInspector;
-        this.depthRangeFor3D = [0, 1 - ((style._order.length + 2) * this.numSublayers * this.depthEpsilon)];
-
-        // Opaque pass ===============================================
-        // Draw opaque layers top-to-bottom first.
-        if (!this.renderToTexture) {
-            this.renderPass = 'opaque';
-
-            for (this.currentLayer = layerIds.length - 1; this.currentLayer >= 0; this.currentLayer--) {
-                const layer = this.style._layers[layerIds[this.currentLayer]];
-                const sourceCache = sourceCaches[layer.source];
-                const coords = coordsAscending[layer.source];
-
-                this._renderTileClippingMasks(layer, coords, false);
-                this.renderLayer(this, sourceCache, layer, coords, renderOptions);
+            if (this.renderToTexture) {
+                this.renderToTexture.prepareForRender(this.style, this.transform.zoom);
+                // this is disabled, because render-to-texture is rendering all layers from bottom to top.
+                this.opaquePassCutoff = 0;
             }
-        }
 
-        // Translucent pass ===============================================
-        // Draw all other layers bottom-to-top.
-        this.renderPass = 'translucent';
+            // Offscreen pass ===============================================
+            // We first do all rendering that requires rendering to a separate
+            // framebuffer, and then save those for rendering back to the map
+            // later: in doing this we avoid doing expensive framebuffer restores.
+            this.renderPass = 'offscreen';
 
-        let globeDepthRendered = false;
+            for (const layerId of layerIds) {
+                const layer = this.style._layers[layerId];
+                if (!layer.hasOffscreenPass() || layer.isHidden(this.transform.zoom)) continue;
 
-        for (this.currentLayer = 0; this.currentLayer < layerIds.length; this.currentLayer++) {
-            const layer = this.style._layers[layerIds[this.currentLayer]];
-            const sourceCache = sourceCaches[layer.source];
+                const coords = coordsDescending[layer.source];
+                if (layer.type !== 'custom' && !coords.length) continue;
 
-            if (this.renderToTexture && this.renderToTexture.renderLayer(layer, renderOptions)) continue;
+                this.renderLayer(this, sourceCaches[layer.source], layer, coords, renderOptions);
+            }
 
-            if (!this.opaquePassEnabledForLayer() && !globeDepthRendered) {
-                globeDepthRendered = true;
-                // Render the globe sphere into the depth buffer - but only if globe is enabled and terrain is disabled.
-                // There should be no need for explicitly writing tile depths when terrain is enabled.
-                if (renderOptions.isRenderingGlobe && !this.style.map.terrain) {
-                    this._renderTilesDepthBuffer();
+            // Execute offscreen GPU tasks of the projection manager
+            this.style.projection?.updateGPUdependent({
+                context: this.context,
+                useProgram: (name: string) => this.useProgram(name)
+            });
+
+            // Rebind the main framebuffer now that all offscreen layers have been rendered:
+            this.context.viewport.set([0, 0, this.width, this.height]);
+            this.context.bindFramebuffer.set(null);
+
+            // Clear buffers in preparation for drawing to the main framebuffer
+            this.context.clear({color: options.showOverdrawInspector ? Color.black : Color.transparent, depth: 1});
+            this.clearStencil();
+
+            // draw sky first to not overwrite symbols
+            if (this.style.sky) drawSky(this, this.style.sky);
+
+            this._showOverdrawInspector = options.showOverdrawInspector;
+            this.depthRangeFor3D = [0, 1 - ((style._order.length + 2) * this.numSublayers * this.depthEpsilon)];
+
+            // Opaque pass ===============================================
+            // Draw opaque layers top-to-bottom first.
+            if (!this.renderToTexture) {
+                this.renderPass = 'opaque';
+
+                for (this.currentLayer = layerIds.length - 1; this.currentLayer >= 0; this.currentLayer--) {
+                    const layer = this.style._layers[layerIds[this.currentLayer]];
+                    const sourceCache = sourceCaches[layer.source];
+                    const coords = coordsAscending[layer.source];
+
+                    this._renderTileClippingMasks(layer, coords, false);
+                    this.renderLayer(this, sourceCache, layer, coords, renderOptions);
                 }
             }
 
-            // For symbol layers in the translucent pass, we add extra tiles to the renderable set
-            // for cross-tile symbol fading. Symbol layers don't use tile clipping, so no need to render
-            // separate clipping masks
-            const coords = (layer.type === 'symbol' ? coordsDescendingSymbol : coordsDescending)[layer.source];
+            // Translucent pass ===============================================
+            // Draw all other layers bottom-to-top.
+            this.renderPass = 'translucent';
 
-            this._renderTileClippingMasks(layer, coordsAscending[layer.source], !!this.renderToTexture);
-            this.renderLayer(this, sourceCache, layer, coords, renderOptions);
-        }
+            let globeDepthRendered = false;
 
-        // Render atmosphere, only for Globe projection
-        if (renderOptions.isRenderingGlobe) {
-            drawAtmosphere(this, this.style.sky, this.style.light);
-        }
+            for (this.currentLayer = 0; this.currentLayer < layerIds.length; this.currentLayer++) {
+                const layer = this.style._layers[layerIds[this.currentLayer]];
+                const sourceCache = sourceCaches[layer.source];
 
-        if (this.options.showTileBoundaries) {
-            const selectedSource = selectDebugSource(this.style, this.transform.zoom);
-            if (selectedSource) {
-                drawDebug(this, selectedSource, selectedSource.getVisibleCoordinates());
+                if (this.renderToTexture && this.renderToTexture.renderLayer(layer, renderOptions)) continue;
+
+                if (!this.opaquePassEnabledForLayer() && !globeDepthRendered) {
+                    globeDepthRendered = true;
+                    // Render the globe sphere into the depth buffer - but only if globe is enabled and terrain is disabled.
+                    // There should be no need for explicitly writing tile depths when terrain is enabled.
+                    if (renderOptions.isRenderingGlobe && !this.style.map.terrain) {
+                        this._renderTilesDepthBuffer();
+                    }
+                }
+
+                // For symbol layers in the translucent pass, we add extra tiles to the renderable set
+                // for cross-tile symbol fading. Symbol layers don't use tile clipping, so no need to render
+                // separate clipping masks
+                const coords = (layer.type === 'symbol' ? coordsDescendingSymbol : coordsDescending)[layer.source];
+
+                this._renderTileClippingMasks(layer, coordsAscending[layer.source], !!this.renderToTexture);
+                this.renderLayer(this, sourceCache, layer, coords, renderOptions);
             }
-        }
 
-        if (this.options.showPadding) {
-            drawDebugPadding(this);
-        }
+            // Render atmosphere, only for Globe projection
+            if (renderOptions.isRenderingGlobe) {
+                drawAtmosphere(this, this.style.sky, this.style.light);
+            }
 
-        // Set defaults for most GL values so that anyone using the state after the render
-        // encounters more expected values.
-        this.context.setDefault();
+            if (this.options.showTileBoundaries) {
+                const selectedSource = selectDebugSource(this.style, this.transform.zoom);
+                if (selectedSource) {
+                    drawDebug(this, selectedSource, selectedSource.getVisibleCoordinates());
+                }
+            }
+
+            if (this.options.showPadding) {
+                drawDebugPadding(this);
+            }
+
+            // Set defaults for most GL values so that anyone using the state after the render
+            // encounters more expected values.
+            this.context.setDefault();
+        };
+
+        const renderLuma = () => {
+            const renderPass = this.context.device.beginRenderPass({
+                clearColor: options.showOverdrawInspector ? Color.black.rgb : Color.transparent.rgb,
+                clearDepth: 1
+            });
+
+            // Opaque pass ===============================================
+            // Draw opaque layers top-to-bottom first.
+            if (!this.renderToTexture) {
+                this.renderPass = 'opaque';
+
+                for (this.currentLayer = layerIds.length - 1; this.currentLayer >= 0; this.currentLayer--) {
+                    const layer = this.style._layers[layerIds[this.currentLayer]];
+                    const sourceCache = sourceCaches[layer.source];
+                    const coords = coordsAscending[layer.source];
+
+                    this._renderTileClippingMasks(layer, coords, false);
+                    this.renderLayer(this, sourceCache, layer, coords, renderOptions, renderPass);
+                }
+            }
+
+            // Translucent pass ===============================================
+            // Draw all other layers bottom-to-top.
+            this.renderPass = 'translucent';
+
+            let globeDepthRendered = false;
+
+            for (this.currentLayer = 0; this.currentLayer < layerIds.length; this.currentLayer++) {
+                const layer = this.style._layers[layerIds[this.currentLayer]];
+                const sourceCache = sourceCaches[layer.source];
+
+                if (this.renderToTexture && this.renderToTexture.renderLayer(layer, renderOptions)) continue;
+
+                if (!this.opaquePassEnabledForLayer() && !globeDepthRendered) {
+                    globeDepthRendered = true;
+                    // Render the globe sphere into the depth buffer - but only if globe is enabled and terrain is disabled.
+                    // There should be no need for explicitly writing tile depths when terrain is enabled.
+                    if (renderOptions.isRenderingGlobe && !this.style.map.terrain) {
+                        this._renderTilesDepthBuffer();
+                    }
+                }
+
+                // For symbol layers in the translucent pass, we add extra tiles to the renderable set
+                // for cross-tile symbol fading. Symbol layers don't use tile clipping, so no need to render
+                // separate clipping masks
+                const coords = (layer.type === 'symbol' ? coordsDescendingSymbol : coordsDescending)[layer.source];
+
+                this._renderTileClippingMasks(layer, coordsAscending[layer.source], !!this.renderToTexture);
+                this.renderLayer(this, sourceCache, layer, coords, renderOptions, renderPass);
+            }
+
+
+            renderPass.end();
+            this.context.device.submit();
+        };
+
+        // @LUMA:DEV
+        // Set up a split view, with legacy rendering on the left side of the viewport
+        this.context.gl.enable(this.context.gl.SCISSOR_TEST);
+        this.context.gl.scissor(0, 0, this.width/2, this.height);
+        renderLegacy();
+        this.context.gl.scissor(this.width/2, 0, this.width/2, this.height);
+        renderLuma();
+        this.context.gl.scissor(0, 0, this.width, this.height);
+        this.context.gl.disable(this.context.gl.SCISSOR_TEST);
     }
 
     /**
@@ -654,32 +736,34 @@ export class Painter {
         drawCoords(this, this.style.map.terrain);
     }
 
-    renderLayer(painter: Painter, sourceCache: SourceCache, layer: StyleLayer, coords: Array<OverscaledTileID>, renderOptions: RenderOptions) {
+    renderLayer(painter: Painter, sourceCache: SourceCache, layer: StyleLayer, coords: Array<OverscaledTileID>, renderOptions: RenderOptions, pass?: LumaPass) {
         if (layer.isHidden(this.transform.zoom)) return;
         if (layer.type !== 'background' && layer.type !== 'custom' && !(coords || []).length) return;
         this.id = layer.id;
 
-        if (isSymbolStyleLayer(layer)) {
+        if (!pass && isSymbolStyleLayer(layer)) {
             drawSymbols(painter, sourceCache, layer, coords, this.style.placement.variableOffsets, renderOptions);
         } else if (isCircleStyleLayer(layer)) {
-            drawCircles(painter, sourceCache, layer, coords, renderOptions);
-        } else if (isHeatmapStyleLayer(layer)) {
+            pass ?
+                drawCirclesLuma(painter, sourceCache, layer, coords, renderOptions, pass) :
+                drawCircles(painter, sourceCache, layer, coords, renderOptions);
+        } else if (!pass && isHeatmapStyleLayer(layer)) {
             drawHeatmap(painter, sourceCache, layer, coords, renderOptions);
-        } else if (isLineStyleLayer(layer)) {
+        } else if (!pass && isLineStyleLayer(layer)) {
             drawLine(painter, sourceCache, layer, coords, renderOptions);
-        } else if (isFillStyleLayer(layer)) {
+        } else if (!pass && isFillStyleLayer(layer)) {
             drawFill(painter, sourceCache, layer, coords, renderOptions);
-        } else if (isFillExtrusionStyleLayer(layer)) {
+        } else if (!pass && isFillExtrusionStyleLayer(layer)) {
             drawFillExtrusion(painter, sourceCache, layer, coords, renderOptions);
-        } else if (isHillshadeStyleLayer(layer)) {
+        } else if (!pass && isHillshadeStyleLayer(layer)) {
             drawHillshade(painter, sourceCache, layer, coords, renderOptions);
-        } else if (isColorReliefStyleLayer(layer)) {
+        } else if (!pass && isColorReliefStyleLayer(layer)) {
             drawColorRelief(painter, sourceCache, layer, coords, renderOptions);
-        } else if (isRasterStyleLayer(layer)) {
+        } else if (!pass && isRasterStyleLayer(layer)) {
             drawRaster(painter, sourceCache, layer, coords, renderOptions);
-        } else if (isBackgroundStyleLayer(layer)) {
+        } else if (!pass && isBackgroundStyleLayer(layer)) {
             drawBackground(painter, sourceCache, layer, coords, renderOptions);
-        } else if (isCustomStyleLayer(layer)) {
+        } else if (!pass && isCustomStyleLayer(layer)) {
             drawCustom(painter, sourceCache, layer, renderOptions);
         }
     }
@@ -720,13 +804,16 @@ export class Painter {
      * False by default. Use true when drawing with a simple projection matrix is desired, eg. when drawing a fullscreen quad.
      * @returns
      */
-    useProgram(name: string, programConfiguration?: ProgramConfiguration | null, forceSimpleProjection: boolean = false, defines: Array<string> = []): Program<any> {
+    useProgram(name: string, programConfiguration?: ProgramConfiguration | null, forceSimpleProjection: boolean = false, defines: Array<string> = [], useLumaShaders: boolean = false): Program<any> {
         this.cache = this.cache || {};
         const useTerrain = !!this.style.map.terrain;
 
         const projection = this.style.projection;
 
-        const projectionPrelude = forceSimpleProjection ? shaders.projectionMercator : projection.shaderPreludeCode;
+        const projectionPrelude = forceSimpleProjection ?
+            (useLumaShaders ? shaders.luma_projectionMercator : shaders.projectionMercator) :
+            projection.shaderPreludeCode(useLumaShaders);
+
         const projectionDefine = forceSimpleProjection ? MercatorShaderDefine : projection.shaderDefine;
         const projectionKey = `/${forceSimpleProjection ? MercatorShaderVariantKey : projection.shaderVariantName}`;
 
@@ -747,7 +834,8 @@ export class Painter {
                 useTerrain,
                 projectionPrelude,
                 projectionDefine,
-                defines
+                defines,
+                useLumaShaders
             );
         }
         return this.cache[key];

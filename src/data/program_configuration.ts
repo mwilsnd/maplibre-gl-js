@@ -423,6 +423,7 @@ export class ProgramConfiguration {
     cacheKey: string;
 
     _buffers: Array<VertexBuffer>;
+    _paintBuffers: Array<StructArray>;
 
     constructor(layer: TypedStyleLayer, zoom: number, filterProperties: (_: string) => boolean) {
         this.binders = {};
@@ -544,6 +545,25 @@ export class ProgramConfiguration {
         return result;
     }
 
+    getAttributeMetadata(): {[_: string]: StructArrayMember} {
+        const result: {[_: string]: StructArrayMember} = {};
+        for (const property in this.binders) {
+            const binder = this.binders[property];
+            if (binder instanceof SourceExpressionBinder || binder instanceof CompositeExpressionBinder) {
+                for (let i = 0; i < binder.paintVertexAttributes.length; i++) {
+                    const name = binder.paintVertexAttributes[i].name;
+                    result[name] = binder.paintVertexAttributes[i];
+                }
+            } else if (binder instanceof CrossFadedCompositeBinder) {
+                for (let i = 0; i < patternAttributes.members.length; i++) {
+                    const name = patternAttributes.members[i].name;
+                    result[name] = patternAttributes.members[i];
+                }
+            }
+        }
+        return result;
+    }
+
     getBinderUniforms(): Array<string> {
         const uniforms = [];
         for (const property in this.binders) {
@@ -559,6 +579,10 @@ export class ProgramConfiguration {
 
     getPaintVertexBuffers(): Array<VertexBuffer> {
         return this._buffers;
+    }
+
+    getPaintVertexArrays(): Array<StructArray> {
+        return this._paintBuffers;
     }
 
     getUniforms(context: Context, locations: UniformLocations): Array<BinderUniform> {
@@ -577,6 +601,45 @@ export class ProgramConfiguration {
         return uniforms;
     }
 
+    /**
+     * Returns a map of uniform property names and their current values for a given ProgramConfiguration
+     * @param programConfiguration - The ProgramConfiguration instance to extract uniform values from
+     * @param properties - The current property values to evaluate
+     * @param globals - Global properties for evaluation
+     * @returns A map of uniform property names to their current evaluated values
+     */
+    getUniformPropertyValues(
+        properties: any,
+        globals: GlobalProperties
+    ): Record<string, any> {
+        const uniformValues: Record<string, any> = {};
+
+        for (const property in this.binders) {
+            const binder = this.binders[property];
+
+            if (binder instanceof ConstantBinder ||
+                binder instanceof CrossFadedConstantBinder ||
+                binder instanceof CompositeExpressionBinder) {
+
+                if (binder instanceof ConstantBinder) {
+                    uniformValues[property] = properties.get(property).constantOr(binder.value);
+                } else if (binder instanceof CompositeExpressionBinder) {
+                    const currentZoom = binder.useIntegerZoom ? Math.floor(globals.zoom) : globals.zoom;
+                    uniformValues[property] = Math.max(0, Math.min(1, binder.expression.interpolationFactor(currentZoom, binder.zoom, binder.zoom + 1)));
+                } else if (binder instanceof CrossFadedConstantBinder) {
+                    uniformValues[property] = {
+                        'u_pattern_to': binder.patternTo,
+                        'u_pattern_from': binder.patternFrom,
+                        'u_pixel_ratio_to': binder.pixelRatioTo,
+                        'u_pixel_ratio_from': binder.pixelRatioFrom
+                    };
+                }
+            }
+        }
+
+        return uniformValues;
+    }
+
     setUniforms(
         context: Context,
         binderUniforms: Array<BinderUniform>,
@@ -590,17 +653,23 @@ export class ProgramConfiguration {
         }
     }
 
-    updatePaintBuffers(crossfade?: CrossfadeParameters) {
+    updatePaintBuffers(context: Context, crossfade?: CrossfadeParameters) {
         this._buffers = [];
+        this._paintBuffers = [];
 
         for (const property in this.binders) {
             const binder = this.binders[property];
             if (crossfade && binder instanceof CrossFadedCompositeBinder) {
                 const patternVertexBuffer = crossfade.fromScale === 2 ? binder.zoomInPaintVertexBuffer : binder.zoomOutPaintVertexBuffer;
-                if (patternVertexBuffer) this._buffers.push(patternVertexBuffer);
+                if (patternVertexBuffer) {
+                    this._buffers.push(patternVertexBuffer);
 
+                    const buf = crossfade.fromScale === 2 ? binder.zoomInPaintVertexArray : binder.zoomOutPaintVertexArray;
+                    this._paintBuffers.push(buf);
+                }
             } else if ((binder instanceof SourceExpressionBinder || binder instanceof CompositeExpressionBinder) && binder.paintVertexBuffer) {
                 this._buffers.push(binder.paintVertexBuffer);
+                this._paintBuffers.push(binder.paintVertexArray);
             }
         }
     }
@@ -611,7 +680,7 @@ export class ProgramConfiguration {
             if (binder instanceof SourceExpressionBinder || binder instanceof CompositeExpressionBinder || binder instanceof CrossFadedCompositeBinder)
                 binder.upload(context);
         }
-        this.updatePaintBuffers();
+        this.updatePaintBuffers(context);
     }
 
     destroy() {

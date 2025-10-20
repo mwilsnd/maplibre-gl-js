@@ -32,12 +32,12 @@ export class MercatorProjection implements Projection {
         return MercatorShaderDefine;
     }
 
-    get shaderPreludeCode(): PreparedShader {
-        return shaders.projectionMercator;
+    shaderPreludeCode(luma: boolean): PreparedShader {
+        return luma ? shaders.luma_projectionMercator : shaders.projectionMercator;
     }
 
-    get vertexShaderPreludeCode(): string {
-        return shaders.projectionMercator.vertexSource;
+    vertexShaderPreludeCode(luma: boolean): string {
+        return luma ? shaders.luma_projectionMercator.vertexSource : shaders.projectionMercator.vertexSource;
     }
 
     get subdivisionGranularity(): SubdivisionGranularitySetting {

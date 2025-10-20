@@ -75,12 +75,12 @@ export interface Projection {
      * @internal
      * A preprocessed prelude code for both vertex and fragment shaders.
      */
-    get shaderPreludeCode(): PreparedShader;
+    shaderPreludeCode(luma: boolean): PreparedShader;
 
     /**
      * Vertex shader code that is injected into every MapLibre vertex shader that uses this projection.
      */
-    get vertexShaderPreludeCode(): string;
+    vertexShaderPreludeCode(luma: boolean): string;
 
     /**
      * @internal
@@ -93,8 +93,8 @@ export interface Projection {
     /**
      * @internal
      * A number representing the current transition state of the projection.
-     * The return value should be a number between 0 and 1, 
-     * where 0 means the projection is fully in the initial state, 
+     * The return value should be a number between 0 and 1,
+     * where 0 means the projection is fully in the initial state,
      * and 1 means the projection is fully in the final state.
      */
     get transitionState(): number;

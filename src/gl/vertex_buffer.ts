@@ -7,6 +7,8 @@ import type {
 import type {Program} from '../render/program';
 import type {Context} from '../gl/context';
 
+import {type Device, Buffer} from '@luma.gl/core';
+
 /**
  * An Enum for AttributeType
  */
@@ -32,6 +34,7 @@ export class VertexBuffer {
     dynamicDraw: boolean;
     context: Context;
     buffer: WebGLBuffer;
+    lumaBuffer: Buffer;
 
     /**
      * @param dynamicDraw - Whether this buffer will be repeatedly updated.
@@ -41,6 +44,12 @@ export class VertexBuffer {
         this.attributes = attributes;
         this.itemSize = array.bytesPerElement;
         this.dynamicDraw = dynamicDraw;
+
+        this.lumaBuffer = context.device.createBuffer({
+            data: array.uint8.slice(0, array.length * array.bytesPerElement),
+            byteLength: array.length * array.bytesPerElement,
+            usage: Buffer.VERTEX
+        });
 
         this.context = context;
         const gl = context.gl;
@@ -59,6 +68,9 @@ export class VertexBuffer {
 
     updateData(array: StructArray) {
         if (array.length !== this.length) throw new Error(`Length of new data is ${array.length}, which doesn't match current length of ${this.length}`);
+
+        this.lumaBuffer.write(array.uint8);
+
         const gl = this.context.gl;
         this.bind();
         gl.bufferSubData(gl.ARRAY_BUFFER, 0, array.arrayBuffer);
@@ -96,6 +108,10 @@ export class VertexBuffer {
                 );
             }
         }
+    }
+
+    getLumaBuffer(): Buffer {
+        return this.lumaBuffer;
     }
 
     /**

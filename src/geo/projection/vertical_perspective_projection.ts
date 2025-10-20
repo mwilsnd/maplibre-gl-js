@@ -64,12 +64,12 @@ export class VerticalPerspectiveProjection implements Projection {
         return VerticalPerspectiveShaderDefine;
     }
 
-    get shaderPreludeCode(): PreparedShader {
-        return shaders.projectionGlobe;
+    shaderPreludeCode(luma: boolean): PreparedShader {
+        return luma ? shaders.luma_projectionGlobe : shaders.projectionGlobe;
     }
 
-    get vertexShaderPreludeCode(): string {
-        return shaders.projectionMercator.vertexSource;
+    vertexShaderPreludeCode(luma: boolean): string {
+        return luma ? shaders.projectionMercator.vertexSource : shaders.projectionMercator.vertexSource;
     }
 
     get subdivisionGranularity(): SubdivisionGranularitySetting {

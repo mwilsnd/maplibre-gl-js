@@ -50,5 +50,6 @@ export const programUniforms = {
     terrainCoords: terrainCoordsUniforms,
     projectionErrorMeasurement: projectionErrorMeasurementUniforms,
     atmosphere: atmosphereUniforms,
-    sky: skyUniforms
+    sky: skyUniforms,
+    luma_circle: emptyUniforms
 };

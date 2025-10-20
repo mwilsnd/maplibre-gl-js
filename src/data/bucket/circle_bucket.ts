@@ -29,6 +29,8 @@ import type {ImagePosition} from '../../render/image_atlas';
 import type {VectorTileLayer} from '@mapbox/vector-tile';
 import {type CircleGranularity} from '../../render/subdivision_granularity_settings';
 
+import {Buffer} from '@luma.gl/core';
+
 const VERTEX_MIN_VALUE = -32768; // -(2^15)
 
 // Extrude is in range 0..7, which will be mapped to -1..1 in the shader.
@@ -58,9 +60,11 @@ export class CircleBucket<Layer extends CircleStyleLayer | HeatmapStyleLayer> im
 
     layoutVertexArray: CircleLayoutArray;
     layoutVertexBuffer: VertexBuffer;
+    layoutLumaBuffer: Buffer;
 
     indexArray: TriangleIndexArray;
     indexBuffer: IndexBuffer;
+    indexLumaBuffer: Buffer;
 
     hasPattern: boolean;
     programConfigurations: ProgramConfigurationSet<Layer>;
