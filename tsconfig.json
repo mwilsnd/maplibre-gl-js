@@ -23,7 +23,10 @@
     "types": [
       "geojson",
       "offscreencanvas"
-    ]
+    ],
+    "paths": {
+      "@luma.gl/core/*": ["./node_modules/@luma.gl/core/dist/*"],
+    }
   },
   "ts-node": {
     "experimentalSpecifierResolution": "node",
