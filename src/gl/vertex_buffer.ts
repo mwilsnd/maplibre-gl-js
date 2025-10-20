@@ -64,7 +64,7 @@ export class VertexBuffer {
         gl.bufferSubData(gl.ARRAY_BUFFER, 0, array.arrayBuffer);
     }
 
-    enableAttributes(gl: WebGLRenderingContext|WebGL2RenderingContext, program: Program<any>) {
+    enableAttributes(gl: WebGL2RenderingContext, program: Program<any>) {
         for (let j = 0; j < this.attributes.length; j++) {
             const member = this.attributes[j];
             const attribIndex: number | void = program.attributes[member.name];
@@ -80,7 +80,7 @@ export class VertexBuffer {
      * @param program - The active WebGL program
      * @param vertexOffset - Index of the starting vertex of the segment
      */
-    setVertexAttribPointers(gl: WebGLRenderingContext|WebGL2RenderingContext, program: Program<any>, vertexOffset?: number | null) {
+    setVertexAttribPointers(gl: WebGL2RenderingContext, program: Program<any>, vertexOffset?: number | null) {
         for (let j = 0; j < this.attributes.length; j++) {
             const member = this.attributes[j];
             const attribIndex: number | void = program.attributes[member.name];

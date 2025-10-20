@@ -3160,11 +3160,11 @@ export class Map extends Camera {
             }
         }, {once: true});
 
-        let gl: WebGL2RenderingContext | WebGLRenderingContext | null = null;
+        let gl: WebGL2RenderingContext | null = null;
         if (this._canvasContextAttributes.contextType) {
-            gl = this._canvas.getContext(this._canvasContextAttributes.contextType, attributes) as WebGL2RenderingContext | WebGLRenderingContext;
+            gl = this._canvas.getContext(this._canvasContextAttributes.contextType, attributes) as WebGL2RenderingContext;
         } else {
-            gl = this._canvas.getContext('webgl2', attributes) as WebGL2RenderingContext || this._canvas.getContext('webgl', attributes) as WebGLRenderingContext;
+            gl = this._canvas.getContext('webgl2', attributes) as WebGL2RenderingContext;
         }
 
         if (!gl) {

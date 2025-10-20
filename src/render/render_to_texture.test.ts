@@ -19,7 +19,7 @@ import {type BackgroundStyleLayer} from '../style/style_layer/background_style_l
 import {DepthMode} from '../gl/depth_mode';
 
 describe('render to texture', () => {
-    const gl = document.createElement('canvas').getContext('webgl');
+    const gl = document.createElement('canvas').getContext('webgl2');
     vi.spyOn(gl, 'checkFramebufferStatus').mockReturnValue(gl.FRAMEBUFFER_COMPLETE);
     const backgroundLayer = {
         id: 'maine-background',

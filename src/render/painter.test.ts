@@ -7,7 +7,7 @@ import {StubMap} from '../util/test/util';
 const getStubMap = () => new StubMap() as any;
 
 test('Render must not fail with incompletely loaded style', () => {
-    const gl = document.createElement('canvas').getContext('webgl');
+    const gl = document.createElement('canvas').getContext('webgl2');
     const transform = new MercatorTransform(0, 22, 0, 60, true);
     const painter = new Painter(gl, transform);
     const map = getStubMap();

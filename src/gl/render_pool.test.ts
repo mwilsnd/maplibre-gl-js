@@ -6,7 +6,7 @@ describe('render pool', () => {
     const POOL_SIZE = 3;
 
     function createAndFillPool(): RenderPool {
-        const gl = document.createElement('canvas').getContext('webgl');
+        const gl = document.createElement('canvas').getContext('webgl2');
         vi.spyOn(gl, 'checkFramebufferStatus').mockReturnValue(gl.FRAMEBUFFER_COMPLETE);
         const pool = new RenderPool(new Context(gl), POOL_SIZE, 512);
         for (let i = 0; i < POOL_SIZE; i++) {
@@ -16,7 +16,7 @@ describe('render pool', () => {
     }
 
     test('create pool should not be full', () =>  {
-        const gl = document.createElement('canvas').getContext('webgl');
+        const gl = document.createElement('canvas').getContext('webgl2');
         const pool = new RenderPool(new Context(gl), POOL_SIZE, 512);
         expect(pool.isFull()).toBeFalsy();
     });
