@@ -18,6 +18,7 @@ import type {TerrainData} from '../render/terrain';
 import {translatePosition} from '../util/util';
 import type {ProjectionData} from '../geo/projection/projection_data';
 import {EXTENT} from '../data/extent';
+import { toLumaVertexFormat, toLumaAttributeShaderType } from '../util/luma_format_converter';
 import {pixelsToTileUnits} from '../source/pixels_to_tile_units';
 import {type Color} from '@maplibre/maplibre-gl-style-spec';
 
@@ -146,11 +147,11 @@ export function drawCirclesLuma(painter: Painter, sourceCache: SourceCache, laye
                         (binderUniformValues['circle-stroke-color'] as Color).b,
                         (binderUniformValues['circle-stroke-color'] as Color).a
                     ] : [0, 0, 0, 1],
-                'u_radius': binderUniformValues['circle-radius'],
-                'u_blur': binderUniformValues['circle-blur'],
-                'u_opacity': binderUniformValues['circle-opacity'],
-                'u_stroke_width': binderUniformValues['circle-stroke-width'],
-                'u_stroke_opacity': binderUniformValues['circle-stroke-opacity'],
+                'u_radius': binderUniformValues['circle-radius'] || 0,
+                'u_blur': binderUniformValues['circle-blur'] || 0,
+                'u_opacity': binderUniformValues['circle-opacity'] || 0,
+                'u_stroke_width': binderUniformValues['circle-stroke-width'] || 0,
+                'u_stroke_opacity': binderUniformValues['circle-stroke-opacity'] || 0,
                 'u_scale_with_map': +(layer.paint.get('circle-pitch-scale') === 'map'),
                 'u_pitch_with_map': +(pitchWithMap),
             }
@@ -158,18 +159,37 @@ export function drawCirclesLuma(painter: Painter, sourceCache: SourceCache, laye
 
         const drawBuffer = newUBO(
             {
-                'u_extrude_scale': 'vec2<f32>'
+                'u_extrude_scale': 'vec2<f32>',
+                'u_color_t': 'f32',
+                'u_radius_t': 'f32',
+                'u_blur_t': 'f32',
+                'u_opacity_t': 'f32',
+                'u_stroke_color_t': 'f32',
+                'u_stroke_width_t': 'f32',
+                'u_stroke_opacity_t': 'f32',
             },
             {
                 'u_extrude_scale': extrudeScale,
+                'u_color_t': binderUniformValues['circle-color-t'] || 0,
+                'u_radius_t': binderUniformValues['circle-radius-t'] || 0,
+                'u_blur_t': binderUniformValues['circle-blur-t'] || 0,
+                'u_opacity_t': binderUniformValues['circle-opacity-t'] || 0,
+                'u_stroke_color_t': binderUniformValues['circle-stroke-color-t'] || 0,
+                'u_stroke_width_t': binderUniformValues['circle-stroke-width-t'] || 0,
+                'u_stroke_opacity_t': binderUniformValues['circle-stroke-opacity-t'] || 0,
             }
         );
 
-        const shaderLayout: ShaderLayout = {
+        let shaderLayout: ShaderLayout = {
             attributes: [
                 {location: 0, name: 'a_pos', type: 'vec2<f16>', stepMode: 'vertex'},
-                {location: 1, name: 'a_color', type: 'vec4<f32>', stepMode: 'vertex'},
-                {location: 2, name: 'a_radius', type: 'vec2<f32>', stepMode: 'vertex'}
+                // {location: 1, name: 'a_color', type: 'vec4<f32>', stepMode: 'vertex'},
+                // {location: 2, name: 'a_radius', type: 'vec2<f32>', stepMode: 'vertex'},
+                // {location: 3, name: 'a_blur', type: 'f32', stepMode: 'vertex'},
+                // {location: 4, name: 'a_opacity', type: 'f32', stepMode: 'vertex'},
+                // {location: 5, name: 'a_stroke_color', type: 'vec4<f32>', stepMode: 'vertex'},
+                // {location: 6, name: 'a_stroke_width', type: 'f32', stepMode: 'vertex'},
+                // {location: 7, name: 'a_stroke_opacity', type: 'f32', stepMode: 'vertex'},
             ],
             bindings: [
                 {
@@ -239,91 +259,32 @@ export function drawCirclesLuma(painter: Painter, sourceCache: SourceCache, laye
             ],
         };
 
+        // Build the buffer layout, starting with the base vertex positions
         let bufferLayout: BufferLayout[] = [
             {name: 'a_pos', format: 'sint16x2', stepMode: 'vertex', byteStride: 4, attributes: [{attribute: 'a_pos', format: 'sint16x2', byteOffset: 0}]},
         ];
 
+        // Obtain paint buffers for data-driven attributes from the binders and add them to the layout
+        let attrLocation = 1;
         const binderAttrs = programConfiguration.getAttributeMetadata();
         for (const attrName of programConfiguration.getBinderAttributes()) {
             const attrs = binderAttrs[attrName];
             const componentBytes = (attrs.type == 'Float32' || attrs.type == 'Int32' || attrs.type == 'Uint32') ? 4 :
                 (attrs.type == 'Int16' || attrs.type == 'Uint16') ? 2 : 1;
-            let format: VertexFormat;
-            switch (attrs.type) {
-                case 'Float32':
-                    if (attrs.components > 1) {
-                        switch (attrs.components) {
-                            case 2: format = 'float32x2'; break;
-                            case 3: format = 'float32x3'; break;
-                            case 4: format = 'float32x4'; break;
-                        }
-                    } else {
-                        format = 'float32';
-                    }
-                    break;
-                case 'Int32':
-                    if (attrs.components > 1) {
-                        switch (attrs.components) {
-                            case 2: format = 'sint32x2'; break;
-                            case 3: format = 'sint32x3'; break;
-                            case 4: format = 'sint32x4'; break;
-                        }
-                    } else {
-                        format = 'sint32';
-                    }
-                    break;
-                case 'Uint32':
-                    if (attrs.components > 1) {
-                        switch (attrs.components) {
-                            case 2: format = 'uint32x2'; break;
-                            case 3: format = 'uint32x3'; break;
-                            case 4: format = 'uint32x4'; break;
-                        }
-                    } else {
-                        format = 'uint32';
-                    }
-                    break;
-                case 'Int16':
-                    if (attrs.components > 1) {
-                        switch (attrs.components) {
-                            case 2: format = 'sint16x2'; break;
-                            case 4: format = 'sint16x4'; break;
-                        }
-                    } else {
-                        format = 'sint32';
-                    }
-                    break;
-                case 'Uint16':
-                    if (attrs.components > 1) {
-                        switch (attrs.components) {
-                            case 2: format = 'uint16x2'; break;
-                            case 4: format = 'uint16x4'; break;
-                        }
-                    } else {
-                        format = 'uint32';
-                    }
-                    break;
-                case 'Int8':
-                    if (attrs.components > 1) {
-                        switch (attrs.components) {
-                            case 2: format = 'sint8x2'; break;
-                            case 4: format = 'sint8x4'; break;
-                        }
-                    } else {
-                        format = 'sint8';
-                    }
-                case 'Uint8':
-                    if (attrs.components > 1) {
-                        switch (attrs.components) {
-                            case 2: format = 'uint8x2'; break;
-                            case 4: format = 'uint8x4'; break;
-                        }
-                    } else {
-                        format = 'uint8';
-                    }
-                    break;
-            }
-            bufferLayout.push({name: attrName, stepMode: 'vertex', byteStride: attrs.components * componentBytes, format: format})
+
+                
+            shaderLayout.attributes.push({
+                name: attrName,
+                location: attrLocation++,
+                type: toLumaAttributeShaderType(attrs.type, attrs.components)
+            });
+            
+            bufferLayout.push({
+                name: attrName,
+                stepMode: 'vertex',
+                byteStride: attrs.components * componentBytes,
+                format: toLumaVertexFormat(attrs.type, attrs.components)
+            });
         }
 
         const pipeline = painter.context.device.createRenderPipeline({
@@ -349,6 +310,7 @@ export function drawCirclesLuma(painter: Painter, sourceCache: SourceCache, laye
             }
         });
 
+        // Bind buffers
         pipeline.setBindings({
             'ProjectionParameterUBO': projectionParamterBuffer,
             'GlobeProjectionUBO': globeBuffer,
@@ -356,6 +318,7 @@ export function drawCirclesLuma(painter: Painter, sourceCache: SourceCache, laye
             'DrawUBO': drawBuffer,
         });
 
+        // Bind vertex buffers
         const vertexArray = painter.context.device.createVertexArray({
             shaderLayout: pipeline.shaderLayout,
             bufferLayout: pipeline.bufferLayout

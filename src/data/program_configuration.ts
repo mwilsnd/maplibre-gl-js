@@ -625,7 +625,7 @@ export class ProgramConfiguration {
                     uniformValues[property] = properties.get(property).constantOr(binder.value);
                 } else if (binder instanceof CompositeExpressionBinder) {
                     const currentZoom = binder.useIntegerZoom ? Math.floor(globals.zoom) : globals.zoom;
-                    uniformValues[property] = Math.max(0, Math.min(1, binder.expression.interpolationFactor(currentZoom, binder.zoom, binder.zoom + 1)));
+                    uniformValues[`${property}-t`] = Math.max(0, Math.min(1, binder.expression.interpolationFactor(currentZoom, binder.zoom, binder.zoom + 1)));
                 } else if (binder instanceof CrossFadedConstantBinder) {
                     uniformValues[property] = {
                         'u_pattern_to': binder.patternTo,

@@ -53,8 +53,8 @@ export class IndexBuffer {
         // The right VAO will get this buffer re-bound later in VertexArrayObject.bind
         // See https://github.com/mapbox/mapbox-gl-js/issues/5620
         this.context.unbindVAO();
-        
-        this.lumaBuffer.write(array.uint8);
+
+        this.lumaBuffer.write(array.uint8.slice(0, array.length * array.bytesPerElement));
 
         this.bind();
         gl.bufferSubData(gl.ELEMENT_ARRAY_BUFFER, 0, array.arrayBuffer);

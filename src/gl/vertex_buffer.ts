@@ -69,7 +69,7 @@ export class VertexBuffer {
     updateData(array: StructArray) {
         if (array.length !== this.length) throw new Error(`Length of new data is ${array.length}, which doesn't match current length of ${this.length}`);
 
-        this.lumaBuffer.write(array.uint8);
+        this.lumaBuffer.write(array.uint8.slice(0, array.length * array.bytesPerElement));
 
         const gl = this.context.gl;
         this.bind();
