@@ -321,20 +321,20 @@ export class CircleBucket<Layer extends CircleStyleLayer | HeatmapStyleLayer> im
             bufferLayout: bufferLayout,
             parameters: {
                 depthWriteEnabled: false,
-                depthCompare: 'always',
+                depthCompare: 'less-equal',
                 depthFormat: 'depth24plus-stencil8',
-                blend: false,
-                cullMode: 'none',
+                blend: true, // TODO: _showOverdrawInspector
+                blendColorOperation: 'add',
+                blendAlphaOperation: 'add',
+                blendColorSrcFactor: 'one',
+                blendColorDstFactor: 'one-minus-src',
+                blendAlphaSrcFactor: 'one',
+                blendAlphaDstFactor: 'one-minus-src-alpha',
+                cullMode: 'back',
                 topology: 'triangle-list',
-                stencilCompare: 'always',
-                stencilDepthFailOperation: 'keep',
-                stencilFailOperation: 'keep',
-                stencilPassOperation: 'keep',
-                stencilReadMask: 0,
-                stencilWriteMask: 0
             }
         });
-        
+
         const [prop, draw] = this.createUniformBuffers(painter.context);
         const renderData: CircleRenderData = {
             pipeline: pipeline,
