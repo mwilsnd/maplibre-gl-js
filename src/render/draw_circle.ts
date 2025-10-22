@@ -19,12 +19,20 @@ import {translatePosition} from '../util/util';
 import type {ProjectionData} from '../geo/projection/projection_data';
 import {EXTENT} from '../data/extent';
 import {pixelsToTileUnits} from '../source/pixels_to_tile_units';
+import type { Tile } from '../source/tile';
 
 import type {RenderPass as LumaPass} from '@luma.gl/core';
 import type {Color} from '@maplibre/maplibre-gl-style-spec';
 
 type LumaTileRenderState = {
-    renderData: CircleRenderData;
+    segments: SegmentVector;
+    sortKey: number;
+    coord: OverscaledTileID;
+    tile: Tile;
+    globeExtrudeScale: number;
+    bucket: CircleBucket<any>;
+    pitchWithMap: boolean;
+    extrudeScale: [number, number];
 };
 
 type TileRenderState = {
@@ -49,7 +57,19 @@ export function drawCirclesLuma(painter: Painter, sourceCache: SourceCache, laye
         return;
     }
 
+    const opacity = layer.paint.get('circle-opacity');
+    const strokeWidth = layer.paint.get('circle-stroke-width');
+    const strokeOpacity = layer.paint.get('circle-stroke-opacity');
+    const sortFeaturesByKey = !layer.layout.get('circle-sort-key').isConstant();
+
+    if (opacity.constantOr(1) === 0 && (strokeWidth.constantOr(1) === 0 || strokeOpacity.constantOr(1) === 0)) {
+        return;
+    }
+
+    const styleTranslate = layer.paint.get('circle-translate');
+    const styleTranslateAnchor = layer.paint.get('circle-translate-anchor');
     const radiusCorrectionFactor = painter.transform.getCircleRadiusCorrection();
+    const segmentsRenderStates: Array<LumaTileRenderState> = [];
 
     for (let i = 0; i < coords.length; i++) {
         const coord = coords[i];
@@ -58,12 +78,6 @@ export function drawCirclesLuma(painter: Painter, sourceCache: SourceCache, laye
         if (bucket === undefined) {
             continue;
         }
-
-        const programConfiguration = bucket.programConfigurations.get(layer.id);
-        const program = painter.useProgram('luma_circle', programConfiguration, null, null, true);
-
-        const styleTranslate = layer.paint.get('circle-translate');
-        const styleTranslateAnchor = layer.paint.get('circle-translate-anchor');
 
         let pitchWithMap: boolean, extrudeScale: [number, number];
         let globeExtrudeScale: number = 0;
@@ -80,16 +94,48 @@ export function drawCirclesLuma(painter: Painter, sourceCache: SourceCache, laye
             extrudeScale = painter.transform.pixelsToGLUnits;
         }
 
-        // Common buffers
-        const projectionParamterBuffer = painter.getProjectionParameterBuffer(coord, renderOptions);
-        const globeBuffer = painter.getGlobeBuffer(tile, globeExtrudeScale, styleTranslate, styleTranslateAnchor);
+        if (sortFeaturesByKey) {
+            const oldSegments = bucket.segments.get();
+            for (const segment of oldSegments) {
+                segmentsRenderStates.push({
+                    segments: new SegmentVector([segment]),
+                    sortKey: (segment.sortKey as any as number),
+                    coord,
+                    tile,
+                    globeExtrudeScale,
+                    bucket,
+                    pitchWithMap,
+                    extrudeScale
+                });
+            }
+        } else {
+            segmentsRenderStates.push({
+                segments: bucket.segments,
+                sortKey: 0,
+                coord,
+                tile,
+                globeExtrudeScale,
+                bucket,
+                pitchWithMap,
+                extrudeScale
+            });
+        }
+    }
 
-        // Get luma render data for this tile
-        const renderData = bucket.getOrCreateRenderData(painter, layer, program);
+    if (sortFeaturesByKey) {
+        segmentsRenderStates.sort((a, b) => a.sortKey - b.sortKey);
+    }
 
-        // Update and bind uniform buffers
+    for (const segmentsState of segmentsRenderStates) {
+        const programConfiguration = segmentsState.bucket.programConfigurations.get(layer.id);
+        const program = painter.useProgram('luma_circle', programConfiguration, null, null, true);
+
+        const projectionParamterBuffer = painter.getProjectionParameterBuffer(segmentsState.coord, renderOptions);
+        const globeBuffer = painter.getGlobeBuffer(segmentsState.tile, segmentsState.globeExtrudeScale, styleTranslate, styleTranslateAnchor);
+        const renderData = segmentsState.bucket.getOrCreateRenderData(painter, layer, program);
         const binderUniformValues = programConfiguration.getUniformPropertyValues(layer.paint, {zoom: (painter.transform.zoom as any)});
-        bucket.updateBuffers(
+
+        segmentsState.bucket.updateBuffers(
             renderData.propertyBuffer,
             {
                 'u_color': binderUniformValues['circle-color'] || [0, 0, 0, 1],
@@ -106,11 +152,11 @@ export function drawCirclesLuma(painter: Painter, sourceCache: SourceCache, laye
                 'u_stroke_width': binderUniformValues['circle-stroke-width'] || 0,
                 'u_stroke_opacity': binderUniformValues['circle-stroke-opacity'] || 0,
                 'u_scale_with_map': +(layer.paint.get('circle-pitch-scale') === 'map'),
-                'u_pitch_with_map': +(pitchWithMap),
+                'u_pitch_with_map': +(segmentsState.pitchWithMap),
             },
             renderData.drawBuffer,
             {
-                'u_extrude_scale': extrudeScale,
+                'u_extrude_scale': segmentsState.extrudeScale,
                 'u_color_t': binderUniformValues['circle-color-t'] || 0,
                 'u_radius_t': binderUniformValues['circle-radius-t'] || 0,
                 'u_blur_t': binderUniformValues['circle-blur-t'] || 0,
@@ -128,7 +174,7 @@ export function drawCirclesLuma(painter: Painter, sourceCache: SourceCache, laye
             'DrawUBO': renderData.drawBuffer,
         });
 
-        for (const segment of bucket.segments.get()) {
+        for (const segment of segmentsState.segments.get()) {
             renderData.pipeline.draw({
                 topology: 'triangle-list',
                 renderPass: renderPass,

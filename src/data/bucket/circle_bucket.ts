@@ -32,11 +32,7 @@ import {type CircleGranularity} from '../../render/subdivision_granularity_setti
 import {toLumaVertexFormat, toLumaAttributeShaderType} from '../../util/luma_format_converter';
 import {Painter} from '../../render/painter';
 import {Program} from '../../render/program';
-import {Buffer, RenderPipeline, UniformBufferBindingLayout, type ShaderLayout, type BufferLayout, type BindingDeclaration, UniformBufferLayout, UniformValue, VertexArray} from '@luma.gl/core';
-
-
-import {TypedStyleLayer} from '../../style/style_layer/typed_style_layer';
-
+import {Buffer, RenderPipeline, type ShaderLayout, type BufferLayout, UniformBufferLayout, UniformValue, VertexArray} from '@luma.gl/core';
 
 const VERTEX_MIN_VALUE = -32768; // -(2^15)
 
@@ -303,9 +299,20 @@ export class CircleBucket<Layer extends CircleStyleLayer | HeatmapStyleLayer> im
         return [bufferLayout, shaderLayout];
     }
 
-    createRenderPipeline(painter: Painter, layer: CircleStyleLayer, program: Program<any>): RenderPipeline {
+    updateBuffers(propBuffer: Buffer, propBufferData: Record<string, UniformValue>, drawBuffer: Buffer, drawBufferData: Record<string, UniformValue>,) {
+        propBuffer.write((CircleBucket<Layer>).propBufferLayout.getData(propBufferData));
+        drawBuffer.write((CircleBucket<Layer>).drawBufferLayout.getData(drawBufferData));
+    }
+
+    getOrCreateRenderData(painter: Painter, layer: CircleStyleLayer, program: Program<any>): CircleRenderData
+    {
+        const data = this.lumaData[layer.id];
+        if (data) {
+            return data;
+        }
+
         const [bufferLayout, shaderLayout] = this.createPipelineLayouts(painter, layer);
-        return painter.context.device.createRenderPipeline({
+        const pipeline = painter.context.device.createRenderPipeline({
             id: 'circle-layer',
             vs: program.vertexShader,
             fs: program.fragmentShader,
@@ -327,21 +334,7 @@ export class CircleBucket<Layer extends CircleStyleLayer | HeatmapStyleLayer> im
                 stencilWriteMask: 0
             }
         });
-    }
-
-    updateBuffers(propBuffer: Buffer, propBufferData: Record<string, UniformValue>, drawBuffer: Buffer, drawBufferData: Record<string, UniformValue>,) {
-        propBuffer.write((CircleBucket<Layer>).propBufferLayout.getData(propBufferData));
-        drawBuffer.write((CircleBucket<Layer>).drawBufferLayout.getData(drawBufferData));
-    }
-
-    getOrCreateRenderData(painter: Painter, layer: CircleStyleLayer, program: Program<any>): CircleRenderData
-    {
-        const data = this.lumaData[layer.id];
-        if (data) {
-            return data;
-        }
-
-        const pipeline = this.createRenderPipeline(painter, layer, program);
+        
         const [prop, draw] = this.createUniformBuffers(painter.context);
         const renderData: CircleRenderData = {
             pipeline: pipeline,
