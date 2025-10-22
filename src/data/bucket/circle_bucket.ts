@@ -353,6 +353,14 @@ export class CircleBucket<Layer extends CircleStyleLayer | HeatmapStyleLayer> im
             })
         };
 
+        renderData.vertexArray.setBuffer(0, this.layoutVertexBuffer.getLumaBuffer());
+        renderData.vertexArray.setIndexBuffer(this.indexBuffer.getLumaBuffer());
+
+        let n = 0;
+        for (const buffer of this.programConfigurations.get(layer.id).getPaintVertexBuffers()) {
+            renderData.vertexArray.setBuffer(++n, buffer.getLumaBuffer());
+        }
+
         this.lumaData[layer.id] = renderData
         return renderData;
     }

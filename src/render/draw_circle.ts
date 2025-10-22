@@ -128,15 +128,6 @@ export function drawCirclesLuma(painter: Painter, sourceCache: SourceCache, laye
             'DrawUBO': renderData.drawBuffer,
         });
 
-        // Bind vertex buffers
-        renderData.vertexArray.setBuffer(0, bucket.layoutVertexBuffer.getLumaBuffer());
-        renderData.vertexArray.setIndexBuffer(bucket.indexBuffer.getLumaBuffer());
-
-        let n = 0;
-        for (const buffer of programConfiguration.getPaintVertexBuffers()) {
-            renderData.vertexArray.setBuffer(++n, buffer.getLumaBuffer());
-        }
-
         for (const segment of bucket.segments.get()) {
             renderData.pipeline.draw({
                 topology: 'triangle-list',
