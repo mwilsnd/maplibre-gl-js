@@ -29,7 +29,14 @@ import type {ImagePosition} from '../../render/image_atlas';
 import type {VectorTileLayer} from '@mapbox/vector-tile';
 import {type CircleGranularity} from '../../render/subdivision_granularity_settings';
 
-import {Buffer} from '@luma.gl/core';
+import {toLumaVertexFormat, toLumaAttributeShaderType} from '../../util/luma_format_converter';
+import {Painter} from '../../render/painter';
+import {Program} from '../../render/program';
+import {Buffer, RenderPipeline, UniformBufferBindingLayout, type ShaderLayout, type BufferLayout, type BindingDeclaration, UniformBufferLayout, UniformValue, VertexArray} from '@luma.gl/core';
+
+
+import {TypedStyleLayer} from '../../style/style_layer/typed_style_layer';
+
 
 const VERTEX_MIN_VALUE = -32768; // -(2^15)
 
@@ -39,6 +46,13 @@ function addCircleVertex(layoutVertexArray, x, y, extrudeX, extrudeY) {
     layoutVertexArray.emplaceBack(
         VERTEX_MIN_VALUE + (x * 8) + extrudeX,
         VERTEX_MIN_VALUE + (y * 8) + extrudeY);
+}
+
+export type CircleRenderData = {
+    pipeline: RenderPipeline;
+    propertyBuffer: Buffer;
+    drawBuffer: Buffer;
+    vertexArray: VertexArray;
 }
 
 /**
@@ -71,6 +85,32 @@ export class CircleBucket<Layer extends CircleStyleLayer | HeatmapStyleLayer> im
     segments: SegmentVector;
     uploaded: boolean;
 
+    lumaData: {[_: string]: CircleRenderData};
+
+    static propBufferLayout = new UniformBufferLayout({
+        'u_color': 'vec4<f32>',
+        'u_stroke_color': 'vec4<f32>',
+        'u_radius': 'f32',
+        'u_blur': 'f32',
+        'u_opacity': 'f32',
+        'u_stroke_width': 'f32',
+        'u_stroke_opacity': 'f32',
+        'u_scale_with_map': 'i32',
+        'u_pitch_with_map': 'i32',
+        'u_padding': 'i32'
+    });
+
+    static drawBufferLayout = new UniformBufferLayout({
+        'u_extrude_scale': 'vec2<f32>',
+        'u_color_t': 'f32',
+        'u_radius_t': 'f32',
+        'u_blur_t': 'f32',
+        'u_opacity_t': 'f32',
+        'u_stroke_color_t': 'f32',
+        'u_stroke_width_t': 'f32',
+        'u_stroke_opacity_t': 'f32',
+    });
+
     constructor(options: BucketParameters<Layer>) {
         this.zoom = options.zoom;
         this.globalState = options.globalState;
@@ -79,6 +119,7 @@ export class CircleBucket<Layer extends CircleStyleLayer | HeatmapStyleLayer> im
         this.layerIds = this.layers.map(layer => layer.id);
         this.index = options.index;
         this.hasPattern = false;
+        this.lumaData = {};
 
         this.layoutVertexArray = new CircleLayoutArray();
         this.indexArray = new TriangleIndexArray();
@@ -169,6 +210,151 @@ export class CircleBucket<Layer extends CircleStyleLayer | HeatmapStyleLayer> im
         }
         this.programConfigurations.upload(context);
         this.uploaded = true;
+    }
+
+    createUniformBuffers(context: Context): [Buffer, Buffer]
+    {
+        return [
+            context.device.createBuffer({
+                byteLength: (CircleBucket<Layer>).propBufferLayout.byteLength,
+                usage: Buffer.UNIFORM
+            }),
+            context.device.createBuffer({
+                byteLength: (CircleBucket<Layer>).drawBufferLayout.byteLength,
+                usage: Buffer.UNIFORM
+            })
+        ];
+    }
+
+    createPipelineLayouts(painter: Painter, layer: CircleStyleLayer): [BufferLayout[], ShaderLayout] {
+        let shaderLayout: ShaderLayout = {
+            attributes: [
+                {location: 0, name: 'a_pos', type: 'vec2<f16>', stepMode: 'vertex'},
+            ],
+            bindings: [
+                painter.projectionParameterBindingDecl,
+                painter.globeBufferBindingDecl,
+                {
+                    type: 'uniform',
+                    name: 'CircleEvaluatedPropsUBO',
+                    group: 0,
+                    location: 2,
+                    minBindingSize: 64,
+                    visibility: 3,
+                    uniforms: [
+                        {byteStride: 0, byteOffset: 0, format: 'vec4<f32>', name: 'u_color', arrayLength: 1},
+                        {byteStride: 0, byteOffset: 16, format: 'vec4<f32>', name: 'u_stroke_color', arrayLength: 1},
+                        {byteStride: 0, byteOffset: 32, format: 'f32', name: 'u_radius', arrayLength: 1},
+                        {byteStride: 0, byteOffset: 36, format: 'f32', name: 'u_blur', arrayLength: 1},
+                        {byteStride: 0, byteOffset: 40, format: 'f32', name: 'u_opacity', arrayLength: 1},
+                        {byteStride: 0, byteOffset: 44, format: 'f32', name: 'u_stroke_width', arrayLength: 1},
+                        {byteStride: 0, byteOffset: 48, format: 'f32', name: 'u_stroke_opacity', arrayLength: 1},
+                        {byteStride: 0, byteOffset: 52, format: 'f32', name: 'u_scale_with_map', arrayLength: 1},
+                        {byteStride: 0, byteOffset: 56, format: 'f32', name: 'u_pitch_with_map', arrayLength: 1},
+                        {byteStride: 0, byteOffset: 60, format: 'f32', name: 'props_padding', arrayLength: 1},
+                    ]
+                },
+                {
+                    type: 'uniform',
+                    name: 'DrawUBO',
+                    group: 0,
+                    location: 3,
+                    minBindingSize: 40,
+                    visibility: 3,
+                    uniforms: [
+                        {byteStride: 0, byteOffset: 0, format: 'vec2<f32>', name: 'u_extrude_scale', arrayLength: 1},
+                        {byteStride: 0, byteOffset: 8, format: 'f32', name: 'u_color_t', arrayLength: 1},
+                        {byteStride: 0, byteOffset: 12, format: 'f32', name: 'u_radius_t', arrayLength: 1},
+                        {byteStride: 0, byteOffset: 16, format: 'f32', name: 'u_blur_t', arrayLength: 1},
+                        {byteStride: 0, byteOffset: 20, format: 'f32', name: 'u_opacity_t', arrayLength: 1},
+                        {byteStride: 0, byteOffset: 24, format: 'f32', name: 'u_stroke_color_t', arrayLength: 1},
+                        {byteStride: 0, byteOffset: 28, format: 'f32', name: 'u_stroke_width_t', arrayLength: 1},
+                        {byteStride: 0, byteOffset: 32, format: 'f32', name: 'u_stroke_opacity_t', arrayLength: 1},
+                        {byteStride: 0, byteOffset: 36, format: 'f32', name: 'draw_padding', arrayLength: 1}
+                    ]
+                }
+            ],
+        };
+
+        let bufferLayout: BufferLayout[] = [
+            {name: 'a_pos', format: 'sint16x2', stepMode: 'vertex', byteStride: 4, attributes: [{attribute: 'a_pos', format: 'sint16x2', byteOffset: 0}]},
+        ];
+
+        let attrLocation = 1;
+        const binderAttrs = this.programConfigurations.get(layer.id).getAttributeMetadata();
+        for (const attrName of this.programConfigurations.get(layer.id).getBinderAttributes()) {
+            const attrs = binderAttrs[attrName];
+            const componentBytes = (attrs.type == 'Float32' || attrs.type == 'Int32' || attrs.type == 'Uint32') ? 4 :
+                (attrs.type == 'Int16' || attrs.type == 'Uint16') ? 2 : 1;
+
+            shaderLayout.attributes.push({
+                name: attrName,
+                location: attrLocation++,
+                type: toLumaAttributeShaderType(attrs.type, attrs.components)
+            });
+            bufferLayout.push({
+                name: attrName,
+                stepMode: 'vertex',
+                byteStride: attrs.components * componentBytes,
+                format: toLumaVertexFormat(attrs.type, attrs.components)
+            });
+        }
+
+        return [bufferLayout, shaderLayout];
+    }
+
+    createRenderPipeline(painter: Painter, layer: CircleStyleLayer, program: Program<any>): RenderPipeline {
+        const [bufferLayout, shaderLayout] = this.createPipelineLayouts(painter, layer);
+        return painter.context.device.createRenderPipeline({
+            id: 'circle-layer',
+            vs: program.vertexShader,
+            fs: program.fragmentShader,
+            topology: 'triangle-list',
+            shaderLayout: shaderLayout,
+            bufferLayout: bufferLayout,
+            parameters: {
+                depthWriteEnabled: false,
+                depthCompare: 'always',
+                depthFormat: 'depth24plus-stencil8',
+                blend: false,
+                cullMode: 'none',
+                topology: 'triangle-list',
+                stencilCompare: 'always',
+                stencilDepthFailOperation: 'keep',
+                stencilFailOperation: 'keep',
+                stencilPassOperation: 'keep',
+                stencilReadMask: 0,
+                stencilWriteMask: 0
+            }
+        });
+    }
+
+    updateBuffers(propBuffer: Buffer, propBufferData: Record<string, UniformValue>, drawBuffer: Buffer, drawBufferData: Record<string, UniformValue>,) {
+        propBuffer.write((CircleBucket<Layer>).propBufferLayout.getData(propBufferData));
+        drawBuffer.write((CircleBucket<Layer>).drawBufferLayout.getData(drawBufferData));
+    }
+
+    getOrCreateRenderData(painter: Painter, layer: CircleStyleLayer, program: Program<any>): CircleRenderData
+    {
+        const data = this.lumaData[layer.id];
+        if (data) {
+            return data;
+        }
+
+        const pipeline = this.createRenderPipeline(painter, layer, program);
+        const [prop, draw] = this.createUniformBuffers(painter.context);
+        const renderData: CircleRenderData = {
+            pipeline: pipeline,
+            propertyBuffer: prop,
+            drawBuffer: draw,
+            vertexArray: painter.context.device.createVertexArray({
+                shaderLayout: pipeline.shaderLayout,
+                bufferLayout: pipeline.bufferLayout
+            })
+        };
+
+        this.lumaData[layer.id] = renderData
+        return renderData;
     }
 
     destroy() {

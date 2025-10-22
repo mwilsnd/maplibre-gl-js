@@ -1,4 +1,4 @@
-import { AttributeShaderType, VertexFormat } from "@luma.gl/core";
+import {AttributeShaderType, VertexFormat} from "@luma.gl/core";
 
 const VertexFormatLookup = {
     'Float32': 'float32',

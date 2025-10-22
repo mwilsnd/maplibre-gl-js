@@ -8,7 +8,7 @@ import {type OverscaledTileID} from '../source/tile_id';
 import type {Painter, RenderOptions} from './painter';
 import type {SourceCache} from '../source/source_cache';
 import type {CircleStyleLayer} from '../style/style_layer/circle_style_layer';
-import type {CircleBucket} from '../data/bucket/circle_bucket';
+import type {CircleBucket, CircleRenderData} from '../data/bucket/circle_bucket';
 import {type ProgramConfiguration} from '../data/program_configuration';
 import type {VertexBuffer} from '../gl/vertex_buffer';
 import type {IndexBuffer} from '../gl/index_buffer';
@@ -18,12 +18,14 @@ import type {TerrainData} from '../render/terrain';
 import {translatePosition} from '../util/util';
 import type {ProjectionData} from '../geo/projection/projection_data';
 import {EXTENT} from '../data/extent';
-import { toLumaVertexFormat, toLumaAttributeShaderType } from '../util/luma_format_converter';
 import {pixelsToTileUnits} from '../source/pixels_to_tile_units';
-import {type Color} from '@maplibre/maplibre-gl-style-spec';
 
-import {UniformBufferLayout, type UniformBufferBindingLayout, Buffer, type RenderPass as LumaPass, type BufferLayout, type ShaderLayout, type VertexFormat} from '@luma.gl/core';
-import type {UniformValue, VariableShaderType} from '@luma.gl/core';
+import type {RenderPass as LumaPass} from '@luma.gl/core';
+import type {Color} from '@maplibre/maplibre-gl-style-spec';
+
+type LumaTileRenderState = {
+    renderData: CircleRenderData;
+};
 
 type TileRenderState = {
     programConfiguration: ProgramConfiguration;
@@ -63,12 +65,6 @@ export function drawCirclesLuma(painter: Painter, sourceCache: SourceCache, laye
         const styleTranslate = layer.paint.get('circle-translate');
         const styleTranslateAnchor = layer.paint.get('circle-translate-anchor');
 
-        const projectionData = painter.transform.getProjectionData({
-            overscaledTileID: coord,
-            applyGlobeMatrix: !renderOptions.isRenderingToTexture,
-            applyTerrainMatrix: true
-        });
-
         let pitchWithMap: boolean, extrudeScale: [number, number];
         let globeExtrudeScale: number = 0;
         if (layer.paint.get('circle-pitch-alignment') === 'map') {
@@ -84,60 +80,17 @@ export function drawCirclesLuma(painter: Painter, sourceCache: SourceCache, laye
             extrudeScale = painter.transform.pixelsToGLUnits;
         }
 
+        // Common buffers
+        const projectionParamterBuffer = painter.getProjectionParameterBuffer(coord, renderOptions);
+        const globeBuffer = painter.getGlobeBuffer(tile, globeExtrudeScale, styleTranslate, styleTranslateAnchor);
+
+        // Get luma render data for this tile
+        const renderData = bucket.getOrCreateRenderData(painter, layer, program);
+
+        // Update and bind uniform buffers
         const binderUniformValues = programConfiguration.getUniformPropertyValues(layer.paint, {zoom: (painter.transform.zoom as any)});
-
-        const newUBO = (layout: Record<string, VariableShaderType>, values: Record<string, UniformValue>) => {
-            return painter.context.device.createBuffer({
-                data: (new UniformBufferLayout(layout)).getData(values),
-                usage: Buffer.UNIFORM
-            });
-        };
-
-        const projectionParamterBuffer = newUBO(
-            {
-                'u_projection_matrix': 'mat4x4<f32>',
-                'u_projection_fallback_matrix': 'mat4x4<f32>',
-                'u_projection_tile_mercator_coords': 'vec4<f32>',
-                'u_projection_clipping_plane': 'vec4<f32>',
-                'u_projection_transition': 'f32'
-            },
-            {
-                'u_projection_matrix': projectionData.mainMatrix as any as number[],
-                'u_projection_fallback_matrix': projectionData.fallbackMatrix as any as number[],
-                'u_projection_tile_mercator_coords': projectionData.tileMercatorCoords as any as number[],
-                'u_projection_clipping_plane': projectionData.clippingPlane as any as number[],
-                'u_projection_transition': projectionData.projectionTransition as any as number[]
-            }
-        );
-
-        const globeBuffer = newUBO(
-            {
-                'u_translate': 'vec2<f32>',
-                'u_globe_extrude_scale': 'f32',
-                'u_device_pixel_ratio': 'f32',
-                'u_camera_to_center_distance': 'f32'
-            },
-            {
-                'u_translate': translatePosition(painter.transform, tile, styleTranslate, styleTranslateAnchor),
-                'u_globe_extrude_scale': globeExtrudeScale,
-                'u_device_pixel_ratio': painter.pixelRatio,
-                'u_camera_to_center_distance': painter.transform.cameraToCenterDistance
-            }
-        );
-
-        const propBuffer = newUBO(
-            {
-                'u_color': 'vec4<f32>',
-                'u_stroke_color': 'vec4<f32>',
-                'u_radius': 'f32',
-                'u_blur': 'f32',
-                'u_opacity': 'f32',
-                'u_stroke_width': 'f32',
-                'u_stroke_opacity': 'f32',
-                'u_scale_with_map': 'i32',
-                'u_pitch_with_map': 'i32',
-                'u_padding': 'i32'
-            },
+        bucket.updateBuffers(
+            renderData.propertyBuffer,
             {
                 'u_color': binderUniformValues['circle-color'] || [0, 0, 0, 1],
                 'u_stroke_color': binderUniformValues['circle-stroke-color'] ?
@@ -154,20 +107,8 @@ export function drawCirclesLuma(painter: Painter, sourceCache: SourceCache, laye
                 'u_stroke_opacity': binderUniformValues['circle-stroke-opacity'] || 0,
                 'u_scale_with_map': +(layer.paint.get('circle-pitch-scale') === 'map'),
                 'u_pitch_with_map': +(pitchWithMap),
-            }
-        );
-
-        const drawBuffer = newUBO(
-            {
-                'u_extrude_scale': 'vec2<f32>',
-                'u_color_t': 'f32',
-                'u_radius_t': 'f32',
-                'u_blur_t': 'f32',
-                'u_opacity_t': 'f32',
-                'u_stroke_color_t': 'f32',
-                'u_stroke_width_t': 'f32',
-                'u_stroke_opacity_t': 'f32',
             },
+            renderData.drawBuffer,
             {
                 'u_extrude_scale': extrudeScale,
                 'u_color_t': binderUniformValues['circle-color-t'] || 0,
@@ -180,162 +121,27 @@ export function drawCirclesLuma(painter: Painter, sourceCache: SourceCache, laye
             }
         );
 
-        let shaderLayout: ShaderLayout = {
-            attributes: [
-                {location: 0, name: 'a_pos', type: 'vec2<f16>', stepMode: 'vertex'},
-                // {location: 1, name: 'a_color', type: 'vec4<f32>', stepMode: 'vertex'},
-                // {location: 2, name: 'a_radius', type: 'vec2<f32>', stepMode: 'vertex'},
-                // {location: 3, name: 'a_blur', type: 'f32', stepMode: 'vertex'},
-                // {location: 4, name: 'a_opacity', type: 'f32', stepMode: 'vertex'},
-                // {location: 5, name: 'a_stroke_color', type: 'vec4<f32>', stepMode: 'vertex'},
-                // {location: 6, name: 'a_stroke_width', type: 'f32', stepMode: 'vertex'},
-                // {location: 7, name: 'a_stroke_opacity', type: 'f32', stepMode: 'vertex'},
-            ],
-            bindings: [
-                {
-                    name: 'ProjectionParameterUBO',
-                    group: 0,
-                    location: 0,
-                    minBindingSize: 164,
-                    visibility: 3,
-                    uniforms: [
-                        {byteOffset: 0, format: 'mat4x4<f32>', name: 'u_projection_matrix', arrayLength: 1},
-                        {byteOffset: 64, format: 'mat4x4<f32>', name: 'u_projection_fallback_matrix', arrayLength: 1},
-                        {byteOffset: 128, format: 'vec4<f32>', name: 'u_projection_tile_mercator_coords', arrayLength: 1},
-                        {byteOffset: 144, format: 'vec4<f32>', name: 'u_projection_clipping_plane', arrayLength: 1},
-                        {byteOffset: 160, format: 'f32', name: 'u_projection_transition', arrayLength: 1},
-                    ]
-                } as UniformBufferBindingLayout,
-                {
-                    name: 'GlobeProjectionUBO',
-                    group: 0,
-                    location: 1,
-                    minBindingSize: 20,
-                    visibility: 3,
-                    uniforms: [
-                        {byteOffset: 0, format: 'vec2<f32>', name: 'u_translate', arrayLength: 1},
-                        {byteOffset: 8, format: 'f32', name: 'u_globe_extrude_scale', arrayLength: 1},
-                        {byteOffset: 12, format: 'f32', name: 'u_device_pixel_ratio', arrayLength: 1},
-                        {byteOffset: 16, format: 'f32', name: 'u_camera_to_center_distance', arrayLength: 1},
-                    ]
-                } as UniformBufferBindingLayout,
-                {
-                    name: 'CircleEvaluatedPropsUBO',
-                    group: 0,
-                    location: 2,
-                    minBindingSize: 64,
-                    visibility: 3,
-                    uniforms: [
-                        {byteOffset: 0, format: 'vec4<f32>', name: 'u_color', arrayLength: 1},
-                        {byteOffset: 16, format: 'vec4<f32>', name: 'u_stroke_color', arrayLength: 1},
-                        {byteOffset: 32, format: 'f32', name: 'u_radius', arrayLength: 1},
-                        {byteOffset: 36, format: 'f32', name: 'u_blur', arrayLength: 1},
-                        {byteOffset: 40, format: 'f32', name: 'u_opacity', arrayLength: 1},
-                        {byteOffset: 44, format: 'f32', name: 'u_stroke_width', arrayLength: 1},
-                        {byteOffset: 48, format: 'f32', name: 'u_stroke_opacity', arrayLength: 1},
-                        {byteOffset: 52, format: 'f32', name: 'u_scale_with_map', arrayLength: 1},
-                        {byteOffset: 56, format: 'f32', name: 'u_pitch_with_map', arrayLength: 1},
-                        {byteOffset: 60, format: 'f32', name: 'props_padding', arrayLength: 1},
-                    ]
-                } as UniformBufferBindingLayout,
-                {
-                    name: 'DrawUBO',
-                    group: 0,
-                    location: 3,
-                    minBindingSize: 40,
-                    visibility: 3,
-                    uniforms: [
-                        {byteOffset: 0, format: 'vec2<f32>', name: 'u_extrude_scale', arrayLength: 1},
-                        {byteOffset: 8, format: 'f32', name: 'u_color_t', arrayLength: 1},
-                        {byteOffset: 12, format: 'f32', name: 'u_radius_t', arrayLength: 1},
-                        {byteOffset: 16, format: 'f32', name: 'u_blur_t', arrayLength: 1},
-                        {byteOffset: 20, format: 'f32', name: 'u_opacity_t', arrayLength: 1},
-                        {byteOffset: 24, format: 'f32', name: 'u_stroke_color_t', arrayLength: 1},
-                        {byteOffset: 28, format: 'f32', name: 'u_stroke_width_t', arrayLength: 1},
-                        {byteOffset: 32, format: 'f32', name: 'u_stroke_opacity_t', arrayLength: 1},
-                        {byteOffset: 36, format: 'f32', name: 'draw_padding', arrayLength: 1}
-                    ]
-                } as UniformBufferBindingLayout
-            ],
-        };
-
-        // Build the buffer layout, starting with the base vertex positions
-        let bufferLayout: BufferLayout[] = [
-            {name: 'a_pos', format: 'sint16x2', stepMode: 'vertex', byteStride: 4, attributes: [{attribute: 'a_pos', format: 'sint16x2', byteOffset: 0}]},
-        ];
-
-        // Obtain paint buffers for data-driven attributes from the binders and add them to the layout
-        let attrLocation = 1;
-        const binderAttrs = programConfiguration.getAttributeMetadata();
-        for (const attrName of programConfiguration.getBinderAttributes()) {
-            const attrs = binderAttrs[attrName];
-            const componentBytes = (attrs.type == 'Float32' || attrs.type == 'Int32' || attrs.type == 'Uint32') ? 4 :
-                (attrs.type == 'Int16' || attrs.type == 'Uint16') ? 2 : 1;
-
-                
-            shaderLayout.attributes.push({
-                name: attrName,
-                location: attrLocation++,
-                type: toLumaAttributeShaderType(attrs.type, attrs.components)
-            });
-            
-            bufferLayout.push({
-                name: attrName,
-                stepMode: 'vertex',
-                byteStride: attrs.components * componentBytes,
-                format: toLumaVertexFormat(attrs.type, attrs.components)
-            });
-        }
-
-        const pipeline = painter.context.device.createRenderPipeline({
-            id: 'circle-layer',
-            vs: program.vertexShader,
-            fs: program.fragmentShader,
-            topology: 'triangle-list',
-            shaderLayout: shaderLayout,
-            bufferLayout: bufferLayout,
-            parameters: {
-                depthWriteEnabled: false,
-                depthCompare: 'always',
-                depthFormat: 'depth24plus-stencil8',
-                blend: false,
-                cullMode: 'none',
-                topology: 'triangle-list',
-                stencilCompare: 'always',
-                stencilDepthFailOperation: 'keep',
-                stencilFailOperation: 'keep',
-                stencilPassOperation: 'keep',
-                stencilReadMask: 0,
-                stencilWriteMask: 0
-            }
-        });
-
-        // Bind buffers
-        pipeline.setBindings({
+        renderData.pipeline.setBindings({
             'ProjectionParameterUBO': projectionParamterBuffer,
             'GlobeProjectionUBO': globeBuffer,
-            'CircleEvaluatedPropsUBO': propBuffer,
-            'DrawUBO': drawBuffer,
+            'CircleEvaluatedPropsUBO': renderData.propertyBuffer,
+            'DrawUBO': renderData.drawBuffer,
         });
 
         // Bind vertex buffers
-        const vertexArray = painter.context.device.createVertexArray({
-            shaderLayout: pipeline.shaderLayout,
-            bufferLayout: pipeline.bufferLayout
-        });
-        vertexArray.setBuffer(0, bucket.layoutVertexBuffer.getLumaBuffer());
-        vertexArray.setIndexBuffer(bucket.indexBuffer.getLumaBuffer());
+        renderData.vertexArray.setBuffer(0, bucket.layoutVertexBuffer.getLumaBuffer());
+        renderData.vertexArray.setIndexBuffer(bucket.indexBuffer.getLumaBuffer());
 
         let n = 0;
         for (const buffer of programConfiguration.getPaintVertexBuffers()) {
-            vertexArray.setBuffer(++n, buffer.getLumaBuffer());
+            renderData.vertexArray.setBuffer(++n, buffer.getLumaBuffer());
         }
 
         for (const segment of bucket.segments.get()) {
-            pipeline.draw({
+            renderData.pipeline.draw({
                 topology: 'triangle-list',
                 renderPass: renderPass,
-                vertexArray: vertexArray,
+                vertexArray: renderData.vertexArray,
                 firstVertex: segment.primitiveOffset * 3 * 2,
                 vertexCount: segment.primitiveLength * 3,
             });

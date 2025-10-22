@@ -49,6 +49,7 @@ import type {DepthRangeType, DepthMaskType, DepthFuncType} from '../gl/types';
 import type {ResolvedImage} from '@maplibre/maplibre-gl-style-spec';
 import type {RenderToTexture} from './render_to_texture';
 import type {ProjectionData} from '../geo/projection/projection_data';
+import type {Tile} from '../source/tile';
 import {coveringTiles} from '../geo/projection/covering_tiles';
 import {isSymbolStyleLayer} from '../style/style_layer/symbol_style_layer';
 import {isCircleStyleLayer} from '../style/style_layer/circle_style_layer';
@@ -62,7 +63,8 @@ import {isRasterStyleLayer} from '../style/style_layer/raster_style_layer';
 import {isBackgroundStyleLayer} from '../style/style_layer/background_style_layer';
 import {isCustomStyleLayer} from '../style/style_layer/custom_style_layer';
 
-import {Device, type RenderPass as LumaPass} from '@luma.gl/core';
+import {translatePosition} from '../util/util';
+import {Device, Buffer, UniformBufferLayout, type RenderPass as LumaPass, UniformBufferBindingLayout} from '@luma.gl/core';
 import {webgl2Adapter} from '@luma.gl/webgl';
 
 export type RenderPass = 'offscreen' | 'opaque' | 'translucent';
@@ -139,6 +141,13 @@ export class Painter {
     // of the terrain-facilitators. e.g. depth & coords framebuffers
     // every time the camera-matrix changes the terrain-facilitators will be redrawn.
     terrainFacilitator: {dirty: boolean; matrix: mat4; renderTime: number};
+
+    projectionParamterBufferLayout: UniformBufferLayout;
+    projectionParameterBindingDecl: UniformBufferBindingLayout;
+    projectionParameterBuffer: Buffer;
+    globeBufferLayout: UniformBufferLayout
+    globeBufferBindingDecl: UniformBufferBindingLayout;
+    globeBuffer: Buffer;
 
     constructor(gl: WebGL2RenderingContext, transform: IReadonlyTransform) {
         this.context = new Context(gl);
@@ -238,7 +247,100 @@ export class Painter {
         this.stencilClearMode = new StencilMode({func: gl.ALWAYS, mask: 0}, 0x0, 0xFF, gl.ZERO, gl.ZERO, gl.ZERO);
 
         this.tileExtentMesh = new Mesh(this.tileExtentBuffer, this.quadTriangleIndexBuffer, this.tileExtentSegments);
+
+        this.projectionParamterBufferLayout = new UniformBufferLayout({
+            'u_projection_matrix': 'mat4x4<f32>',
+            'u_projection_fallback_matrix': 'mat4x4<f32>',
+            'u_projection_tile_mercator_coords': 'vec4<f32>',
+            'u_projection_clipping_plane': 'vec4<f32>',
+            'u_projection_transition': 'f32'
+        });
+        this.projectionParameterBindingDecl = {
+            type: 'uniform',
+            name: 'ProjectionParameterUBO',
+            group: 0,
+            location: 0,
+            minBindingSize: 164,
+            visibility: 3,
+            uniforms: [
+                {byteStride: 0, byteOffset: 0, format: 'mat4x4<f32>', name: 'u_projection_matrix', arrayLength: 1},
+                {byteStride: 0, byteOffset: 64, format: 'mat4x4<f32>', name: 'u_projection_fallback_matrix', arrayLength: 1},
+                {byteStride: 0, byteOffset: 128, format: 'vec4<f32>', name: 'u_projection_tile_mercator_coords', arrayLength: 1},
+                {byteStride: 0, byteOffset: 144, format: 'vec4<f32>', name: 'u_projection_clipping_plane', arrayLength: 1},
+                {byteStride: 0, byteOffset: 160, format: 'f32', name: 'u_projection_transition', arrayLength: 1},
+            ]
+        };
+
+        this.globeBufferLayout = new UniformBufferLayout({
+            'u_translate': 'vec2<f32>',
+            'u_globe_extrude_scale': 'f32',
+            'u_device_pixel_ratio': 'f32',
+            'u_camera_to_center_distance': 'f32'
+        });
+        this.globeBufferBindingDecl = {
+            type: 'uniform',
+            name: 'GlobeProjectionUBO',
+            group: 0,
+            location: 1,
+            minBindingSize: 20,
+            visibility: 3,
+            uniforms: [
+                {byteStride: 0, byteOffset: 0, format: 'vec2<f32>', name: 'u_translate', arrayLength: 1},
+                {byteStride: 0, byteOffset: 8, format: 'f32', name: 'u_globe_extrude_scale', arrayLength: 1},
+                {byteStride: 0, byteOffset: 12, format: 'f32', name: 'u_device_pixel_ratio', arrayLength: 1},
+                {byteStride: 0, byteOffset: 16, format: 'f32', name: 'u_camera_to_center_distance', arrayLength: 1},
+            ]
+        };
     }
+
+    getProjectionParameterBuffer(coord: OverscaledTileID, renderOptions: RenderOptions): Buffer {
+        const projectionData = this.transform.getProjectionData({
+            overscaledTileID: coord,
+            applyGlobeMatrix: !renderOptions.isRenderingToTexture,
+            applyTerrainMatrix: true
+        });
+        
+        const bufferData = this.projectionParamterBufferLayout.getData({
+            'u_projection_matrix': projectionData.mainMatrix as any as number[],
+            'u_projection_fallback_matrix': projectionData.fallbackMatrix as any as number[],
+            'u_projection_tile_mercator_coords': projectionData.tileMercatorCoords as any as number[],
+            'u_projection_clipping_plane': projectionData.clippingPlane as any as number[],
+            'u_projection_transition': projectionData.projectionTransition as any as number[]
+        });
+
+        if (!this.projectionParameterBuffer) {
+            this.projectionParameterBuffer = this.context.device.createBuffer({
+                data: bufferData,
+                usage: Buffer.UNIFORM
+            });
+        } else {
+            this.projectionParameterBuffer.write(bufferData)
+        }
+
+        return this.projectionParameterBuffer;
+    }
+
+    getGlobeBuffer(tile: Tile, globeExtrudeScale: number, styleTranslate: [number, number], styleTranslateAnchor: 'map' | 'viewport'): Buffer {
+        const bufferData = this.globeBufferLayout.getData({
+            'u_translate': translatePosition(this.transform, tile, styleTranslate, styleTranslateAnchor),
+            'u_globe_extrude_scale': globeExtrudeScale,
+            'u_device_pixel_ratio': this.pixelRatio,
+            'u_camera_to_center_distance': this.transform.cameraToCenterDistance
+        });
+
+        if (!this.globeBuffer) {
+            this.globeBuffer = this.context.device.createBuffer({
+                data: bufferData,
+                usage: Buffer.UNIFORM
+            });
+        } else {
+            this.globeBuffer.write(bufferData)
+        }
+
+        return this.globeBuffer;
+    }
+
+
 
     /*
      * Reset the drawing canvas by clearing the stencil buffer so that we can draw
