@@ -56,6 +56,22 @@ export type ProjectionDataParams = {
      */
     overscaledTileID: OverscaledTileID | null;
     /**
+     * The current layer index
+     */
+    currentLayer?: number;
+    /**
+     * The current sub-layer index
+     */
+    currentSubLayerIndex?: number;
+    /**
+     * The number of active depth sub-layers
+     */
+    numSubLayers?: number;
+    /**
+     * The minimum size depth slice
+     */
+    depthEpsilon?: number;
+    /**
      * Set to true if a pixel-aligned matrix should be used, if possible (mostly used for raster tiles under mercator projection)
      */
     aligned?: boolean;

@@ -728,6 +728,14 @@ export class MercatorTransform implements ITransform {
         } else {
             mainMatrix = createIdentityMat4f32();
         }
+
+        // When rendering under luma we must offset the near depth mapping manually
+        if (params.currentLayer) {
+            // Modify the projection with the appropriate depth offset for the current layer
+            const delta = ((1 + params.currentLayer) * params.numSubLayers - params.currentSubLayerIndex) * params.depthEpsilon;
+            mainMatrix[14] = mainMatrix[14] - delta;
+        }
+
         return {
             mainMatrix, // Might be set to a custom matrix by different projections.
             tileMercatorCoords: mercatorTileCoordinates,

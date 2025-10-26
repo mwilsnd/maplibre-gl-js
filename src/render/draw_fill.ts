@@ -133,7 +133,8 @@ function drawFillTilesLuma(
         const renderData = bucket.getOrCreateRenderData(painter, layer, program, isOutline, image && true);
         renderData.updateBuffers(painter, layer, bucket);
         renderData.pipeline.setBindings({
-            'ProjectionParameterUBO': painter.getProjectionParameterBuffer(coord, renderOptions),
+            'ProjectionParameterUBO': painter.getProjectionParameterBuffer(coord, {
+                isRenderingGlobe: renderOptions.isRenderingGlobe, isRenderingToTexture: renderOptions.isRenderingToTexture, isRenderingLuma: true}),
             'GlobeProjectionUBO': painter.getGlobeBuffer(tile, 0, propertyFillTranslate, propertyFillTranslateAnchor),
             'FillEvaluatedPropsUBO': renderData.propertyBuffer
         });

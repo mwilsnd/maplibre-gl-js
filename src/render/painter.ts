@@ -82,6 +82,7 @@ type PainterOptions = {
 export type RenderOptions = {
     isRenderingToTexture: boolean;
     isRenderingGlobe: boolean;
+    isRenderingLuma?: boolean;
 };
 
 /**
@@ -164,7 +165,7 @@ export class Painter {
 
         // Within each layer there are multiple distinct z-planes that can be drawn to.
         // This is implemented using the WebGL depth buffer.
-        this.numSublayers = SourceCache.maxUnderzooming + SourceCache.maxOverzooming + 1;
+        this.numSublayers = 3;
         this.depthEpsilon = 1 / Math.pow(2, 16);
 
         this.crossTileSymbolIndex = new CrossTileSymbolIndex();
@@ -296,11 +297,24 @@ export class Painter {
     }
 
     getProjectionParameterBuffer(coord: OverscaledTileID, renderOptions: RenderOptions): Buffer {
-        const projectionData = this.transform.getProjectionData({
-            overscaledTileID: coord,
-            applyGlobeMatrix: !renderOptions.isRenderingToTexture,
-            applyTerrainMatrix: true
-        });
+        let projectionData;
+        if (renderOptions.isRenderingLuma) {
+            projectionData = this.transform.getProjectionData({
+                overscaledTileID: coord,
+                applyGlobeMatrix: !renderOptions.isRenderingToTexture,
+                applyTerrainMatrix: true,
+                currentLayer: this.currentLayer,
+                numSubLayers: this.numSublayers,
+                depthEpsilon: this.depthEpsilon,
+                currentSubLayerIndex: 0 // TODO
+            });
+        } else {
+            projectionData = this.transform.getProjectionData({
+                overscaledTileID: coord,
+                applyGlobeMatrix: !renderOptions.isRenderingToTexture,
+                applyTerrainMatrix: true
+            });
+        }
         
         const bufferData = this.projectionParamterBufferLayout.getData({
             'u_projection_matrix': projectionData.mainMatrix as any as number[],
