@@ -51,5 +51,6 @@ export const programUniforms = {
     projectionErrorMeasurement: projectionErrorMeasurementUniforms,
     atmosphere: atmosphereUniforms,
     sky: skyUniforms,
-    luma_circle: emptyUniforms
+    luma_circle: emptyUniforms,
+    luma_fill: emptyUniforms
 };

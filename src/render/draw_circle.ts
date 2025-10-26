@@ -19,7 +19,7 @@ import {translatePosition} from '../util/util';
 import type {ProjectionData} from '../geo/projection/projection_data';
 import {EXTENT} from '../data/extent';
 import {pixelsToTileUnits} from '../source/pixels_to_tile_units';
-import type { Tile } from '../source/tile';
+import type {Tile} from '../source/tile';
 
 import type {RenderPass as LumaPass} from '@luma.gl/core';
 import type {Color} from '@maplibre/maplibre-gl-style-spec';

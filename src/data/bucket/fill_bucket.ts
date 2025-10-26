@@ -18,7 +18,8 @@ import type {
     BucketParameters,
     BucketFeature,
     IndexedFeature,
-    PopulateParameters
+    PopulateParameters,
+    BucketUBO
 } from '../bucket';
 import type {FillStyleLayer} from '../../style/style_layer/fill_style_layer';
 import type {Context} from '../../gl/context';
@@ -31,6 +32,124 @@ import type {VectorTileLayer} from '@mapbox/vector-tile';
 import {subdividePolygon} from '../../render/subdivision';
 import type {SubdivisionGranularitySetting} from '../../render/subdivision_granularity_settings';
 import {fillLargeMeshArrays} from '../../render/fill_large_mesh_arrays';
+
+import {Painter} from '../../render/painter';
+import {Program} from '../../render/program';
+import {Buffer, RenderPipeline, type ShaderLayout, type BufferLayout, UniformBufferLayout, UniformValue, VertexArray, Shader} from '@luma.gl/core';
+import {Color} from '@maplibre/maplibre-gl-style-spec';
+
+interface FillRenderData {
+    pipeline: RenderPipeline;
+    propertyBuffer: Buffer;
+    vertexArray: VertexArray;
+
+    updateBuffers(painter: Painter, layer: FillStyleLayer, bucket: FillBucket);
+}
+
+class FillRenderPipeline implements FillRenderData {
+    pipeline: RenderPipeline;
+    propertyBuffer: Buffer;
+    vertexArray: VertexArray;
+
+    static fillPropertyBuffer: BucketUBO = {
+        binding: {
+            type: 'uniform',
+            name: 'FillEvaluatedPropsUBO',
+            group: 0,
+            location: 2,
+            minBindingSize: 32,
+            visibility: 3,
+        },
+        layout: new UniformBufferLayout({
+            'u_color': 'vec4<f32>',
+            'u_fill_translate': 'vec2<f32>',
+            'u_color_t': 'f32',
+            'u_opacity': 'f32',
+            'u_opacity_t': 'f32'
+        })
+    };
+
+    constructor(painter: Painter, layer: FillStyleLayer, bucket: FillBucket, program: Program<any>) {
+        const programConfiguration = bucket.programConfigurations.get(layer.id);
+        this.propertyBuffer = painter.context.device.createBuffer({
+            byteLength: FillRenderPipeline.fillPropertyBuffer.layout.byteLength,
+            usage: Buffer.UNIFORM
+        });
+
+        const bufferLayout: BufferLayout[] = [
+            {name: 'a_pos', format: 'sint16x2', stepMode: 'vertex', byteStride: 4},
+        ];
+        const shaderLayout: ShaderLayout = {
+            attributes: [
+                {location: 0, name: 'a_pos', type: 'vec2<f16>', stepMode: 'vertex'},
+            ],
+            bindings: [
+                painter.projectionParameterBindingDecl,
+                painter.globeBufferBindingDecl,
+                FillRenderPipeline.fillPropertyBuffer.binding
+            ],
+        };
+        programConfiguration.updateLumaPipelineLayouts(1, bufferLayout, shaderLayout);
+
+        this.pipeline = painter.context.device.createRenderPipeline({
+            id: 'fill-layer',
+            vs: program.vertexShader,
+            fs: program.fragmentShader,
+            topology: 'triangle-list',
+            shaderLayout: shaderLayout,
+            bufferLayout: bufferLayout,
+            parameters: {
+                depthWriteEnabled: false,
+                depthCompare: 'less-equal',
+                depthFormat: 'depth24plus-stencil8',
+                blend: true, // TODO: _showOverdrawInspector
+                blendColorOperation: 'add',
+                blendAlphaOperation: 'add',
+                blendColorSrcFactor: 'one',
+                blendColorDstFactor: 'one-minus-src',
+                blendAlphaSrcFactor: 'one',
+                blendAlphaDstFactor: 'one-minus-src-alpha',
+                cullMode: 'back',
+                topology: 'triangle-list',
+            }
+        });
+
+        this.vertexArray = painter.context.device.createVertexArray({
+            shaderLayout: this.pipeline.shaderLayout,
+            bufferLayout: this.pipeline.bufferLayout
+        });
+
+        const binderAttrs = bucket.programConfigurations.get(layer.id).getAttributeMetadata();
+        let n = 0;
+        for (const buffer of programConfiguration.getPaintVertexBuffers()) {
+            if (!binderAttrs[buffer.attributes[0].name]) {
+                continue;
+            }
+            if (buffer.attributes[0].name == 'a_outline_color') {
+                continue; // TODO ????
+            }
+
+            this.vertexArray.setBuffer(++n, buffer.getLumaBuffer());
+        }
+    }
+
+    updateBuffers(painter: Painter, layer: FillStyleLayer, bucket: FillBucket) {
+        const binderUniformValues = bucket.programConfigurations.get(layer.id).getUniformPropertyValues(layer.paint, {zoom: (painter.transform.zoom as any)});
+        this.propertyBuffer.write(FillRenderPipeline.fillPropertyBuffer.layout.getData({
+            'u_color': binderUniformValues['fill-color'] ?
+                [
+                    (binderUniformValues['fill-color'] as Color).r,
+                    (binderUniformValues['fill-color'] as Color).g,
+                    (binderUniformValues['fill-color'] as Color).b,
+                    (binderUniformValues['fill-color'] as Color).a
+                ] : [0, 0, 0, 1],
+            'u_fill_translate': binderUniformValues['fill-translate'] || [0, 0],
+            'u_color_t': binderUniformValues['fill-color-t'] || 0,
+            'u_opacity': binderUniformValues['fill-opacity'] || 0,
+            'u_opacity_t': binderUniformValues['fill-opacity-t'] || 0,
+        }));
+    }
+}
 
 export class FillBucket implements Bucket {
     index: number;
@@ -58,6 +177,74 @@ export class FillBucket implements Bucket {
     segments2: SegmentVector;
     uploaded: boolean;
 
+    lumaData: {[_: string]: FillRenderData};
+
+
+    static fillPatternPropertyBuffer: BucketUBO = {
+        binding: {
+            type: 'uniform',
+            name: 'FillPatternEvaluatedPropsUBO',
+            group: 0,
+            location: 2,
+            minBindingSize: 128,
+            visibility: 3,
+        },
+        layout: new UniformBufferLayout({
+            'u_pixel_coord_upper': 'vec2<f32>', // 8
+            'u_pixel_coord_lower': 'vec2<f32>', // 16
+            'u_fill_translate': 'vec2<f32>', // 24
+            'u_texsize': 'vec2<f32>', // 32
+            'u_scale': 'vec3<f32>', // 40
+            'u_fade': 'f32', // + 16(std140) = 56
+            'u_opacity_t': 'f32', // 60
+            'u_pixel_ratio_from_t': 'f32', // 64
+            'u_pixel_ratio_to_t': 'f32', // 68
+            'u_pattern_from_t': 'vec4<f32>', // 84
+            'u_pattern_to_t': 'vec4<f32>', // 100
+            
+        })
+    };
+    static fillOutlinePropertyBuffer: BucketUBO = {
+        binding: {
+            type: 'uniform',
+            name: 'FillOutlineEvaluatedPropsUBO',
+            group: 0,
+            location: 2,
+            minBindingSize: 48,
+            visibility: 3,
+        },
+        layout: new UniformBufferLayout({
+            'u_world': 'vec2<f32>',
+            'u_fill_translate': 'vec2<f32>',
+            'u_outline_color_t': 'vec4<f32>',
+            'u_opacity': 'f32',
+        })
+    };
+    static fillOutlinePatternPropertyBuffer: BucketUBO = {
+        binding: {
+            type: 'uniform',
+            name: 'FillOutlinePatternEvaluatedPropsUBO',
+            group: 0,
+            location: 2,
+            minBindingSize: 128,
+            visibility: 3,
+        },
+        layout: new UniformBufferLayout({
+            'u_pattern_from_t': 'vec4<f32>', // 16
+            'u_pattern_to_t': 'vec4<f32>', // 32
+            'u_scale': 'vec3<f32>', // 48
+            'u_world': 'vec2<f32>', // 56
+            'u_pixel_coord_upper': 'vec2<f32>', // 64
+            'u_pixel_coord_lower': 'vec2<f32>', // 72
+            'u_fill_translate': 'vec2<f32>', // 80
+            'u_texsize': 'vec2<f32>', // 88
+            'u_pixel_ratio_from': 'f32', // 92
+            'u_pixel_ratio_to': 'f32', // 96
+            'u_fade': 'f32', // 100filterProperties
+            'u_opacity_t': 'f32', // 104
+        })
+    };
+
     constructor(options: BucketParameters<FillStyleLayer>) {
         this.zoom = options.zoom;
         this.globalState = options.globalState;
@@ -67,6 +254,7 @@ export class FillBucket implements Bucket {
         this.index = options.index;
         this.hasPattern = false;
         this.patternFeatures = [];
+        this.lumaData = {};
 
         this.layoutVertexArray = new FillLayoutArray();
         this.indexArray = new TriangleIndexArray();
@@ -153,6 +341,7 @@ export class FillBucket implements Bucket {
     uploadPending(): boolean {
         return !this.uploaded || this.programConfigurations.needsUpload;
     }
+
     upload(context: Context) {
         if (!this.uploaded) {
             this.layoutVertexBuffer = context.createVertexBuffer(this.layoutVertexArray, layoutAttributes);
@@ -161,6 +350,20 @@ export class FillBucket implements Bucket {
         }
         this.programConfigurations.upload(context);
         this.uploaded = true;
+    }
+    
+    getOrCreateRenderData(painter: Painter, layer: FillStyleLayer, program: Program<any>, isOutline: boolean, image: boolean): FillRenderData {
+        const data = this.lumaData[layer.id];
+        if (data) {
+            return data;
+        }
+
+        const renderData = new FillRenderPipeline(painter, layer, this, program);
+        renderData.vertexArray.setBuffer(0, this.layoutVertexBuffer.getLumaBuffer());
+        renderData.vertexArray.setIndexBuffer(isOutline ? this.indexBuffer2.getLumaBuffer() : this.indexBuffer.getLumaBuffer());
+
+        this.lumaData[layer.id] = renderData
+        return renderData;
     }
 
     destroy() {

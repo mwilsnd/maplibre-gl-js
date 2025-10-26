@@ -72,6 +72,8 @@ import skyVert from './sky.vertex.glsl.g';
 
 import lumaCircleFrag from './luma.circle.fragment.glsl.g';
 import lumaCircleVert from './luma.circle.vertex.glsl.g';
+import lumaFillFrag from './luma.fill.fragment.glsl.g';
+import lumaFillVert from './luma.fill.vertex.glsl.g';
 import lumaPreludeFrag from './luma._prelude.fragment.glsl.g';
 import lumaPreludeVert from './luma._prelude.vertex.glsl.g';
 import lumaProjectionMercatorVert from './luma._projection_mercator.vertex.glsl.g';
@@ -126,6 +128,7 @@ export const shaders = {
     luma_projectionMercator: prepare2('', lumaProjectionMercatorVert),
     luma_projectionGlobe: prepare2('', lumaProjectionGlobeVert),
     luma_circle: prepare2(lumaCircleFrag, lumaCircleVert),
+    luma_fill: prepare2(lumaFillFrag, lumaFillVert),
 };
 
 /** Expand #pragmas to #ifdefs, extract attributes and uniforms */

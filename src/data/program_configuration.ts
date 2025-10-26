@@ -28,6 +28,9 @@ import type {
 } from '@maplibre/maplibre-gl-style-spec';
 import type {FeatureStates} from '../source/source_state';
 import type {VectorTileLayer} from '@mapbox/vector-tile';
+import { BufferLayout, ShaderLayout } from '@luma.gl/core/index';
+
+import {toLumaVertexFormat, toLumaAttributeShaderType} from '../util/luma_format_converter';
 
 export type BinderUniform = {
     name: string;
@@ -671,6 +674,27 @@ export class ProgramConfiguration {
                 this._buffers.push(binder.paintVertexBuffer);
                 this._paintBuffers.push(binder.paintVertexArray);
             }
+        }
+    }
+
+    updateLumaPipelineLayouts(offset: number, bufferLayout: BufferLayout[], shaderLayout: ShaderLayout) {
+        const binderAttrs = this.getAttributeMetadata();
+        for (const attrName of this.getBinderAttributes()) {
+            const attrs = binderAttrs[attrName];
+            const componentBytes = (attrs.type == 'Float32' || attrs.type == 'Int32' || attrs.type == 'Uint32') ? 4 :
+                (attrs.type == 'Int16' || attrs.type == 'Uint16') ? 2 : 1;
+
+            shaderLayout.attributes.push({
+                name: attrName,
+                location: offset++,
+                type: toLumaAttributeShaderType(attrs.type, attrs.components)
+            });
+            bufferLayout.push({
+                name: attrName,
+                stepMode: 'vertex',
+                byteStride: attrs.components * componentBytes,
+                format: toLumaVertexFormat(attrs.type, attrs.components)
+            });
         }
     }
 

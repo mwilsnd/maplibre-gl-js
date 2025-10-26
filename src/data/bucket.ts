@@ -9,6 +9,7 @@ import type {CanonicalTileID} from '../source/tile_id';
 import type {VectorTileFeature, VectorTileLayer} from '@mapbox/vector-tile';
 import type Point from '@mapbox/point-geometry';
 import type {SubdivisionGranularitySetting} from '../render/subdivision_granularity_settings';
+import type {BindingDeclaration, UniformBufferLayout} from '@luma.gl/core/index';
 
 export type BucketParameters<Layer extends TypedStyleLayer> = {
     index: number;
@@ -54,6 +55,11 @@ export type BucketFeature = {
     };
     sortKey?: number;
 };
+
+export type BucketUBO = {
+    binding: BindingDeclaration;
+    layout: UniformBufferLayout;
+}
 
 /**
  * @hidden

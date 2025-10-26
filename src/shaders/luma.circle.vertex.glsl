@@ -2,13 +2,6 @@ layout (location = 0) in vec2 a_pos;
 out vec3 v_data;
 out float v_visibility;
 
-layout (std140) uniform GlobeProjectionUBO {
-    vec2 u_translate;
-    highp float u_globe_extrude_scale;
-    highp float u_device_pixel_ratio;
-    highp float u_camera_to_center_distance;
-};
-
 layout (std140) uniform CircleEvaluatedPropsUBO {
     highp vec4 u_color;
     highp vec4 u_stroke_color;

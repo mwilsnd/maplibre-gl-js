@@ -236,19 +236,7 @@ export class CircleBucket<Layer extends CircleStyleLayer | HeatmapStyleLayer> im
                     group: 0,
                     location: 2,
                     minBindingSize: 64,
-                    visibility: 3,
-                    uniforms: [
-                        {byteStride: 0, byteOffset: 0, format: 'vec4<f32>', name: 'u_color', arrayLength: 1},
-                        {byteStride: 0, byteOffset: 16, format: 'vec4<f32>', name: 'u_stroke_color', arrayLength: 1},
-                        {byteStride: 0, byteOffset: 32, format: 'f32', name: 'u_radius', arrayLength: 1},
-                        {byteStride: 0, byteOffset: 36, format: 'f32', name: 'u_blur', arrayLength: 1},
-                        {byteStride: 0, byteOffset: 40, format: 'f32', name: 'u_opacity', arrayLength: 1},
-                        {byteStride: 0, byteOffset: 44, format: 'f32', name: 'u_stroke_width', arrayLength: 1},
-                        {byteStride: 0, byteOffset: 48, format: 'f32', name: 'u_stroke_opacity', arrayLength: 1},
-                        {byteStride: 0, byteOffset: 52, format: 'f32', name: 'u_scale_with_map', arrayLength: 1},
-                        {byteStride: 0, byteOffset: 56, format: 'f32', name: 'u_pitch_with_map', arrayLength: 1},
-                        {byteStride: 0, byteOffset: 60, format: 'f32', name: 'props_padding', arrayLength: 1},
-                    ]
+                    visibility: 3
                 },
                 {
                     type: 'uniform',
@@ -256,46 +244,16 @@ export class CircleBucket<Layer extends CircleStyleLayer | HeatmapStyleLayer> im
                     group: 0,
                     location: 3,
                     minBindingSize: 40,
-                    visibility: 3,
-                    uniforms: [
-                        {byteStride: 0, byteOffset: 0, format: 'vec2<f32>', name: 'u_extrude_scale', arrayLength: 1},
-                        {byteStride: 0, byteOffset: 8, format: 'f32', name: 'u_color_t', arrayLength: 1},
-                        {byteStride: 0, byteOffset: 12, format: 'f32', name: 'u_radius_t', arrayLength: 1},
-                        {byteStride: 0, byteOffset: 16, format: 'f32', name: 'u_blur_t', arrayLength: 1},
-                        {byteStride: 0, byteOffset: 20, format: 'f32', name: 'u_opacity_t', arrayLength: 1},
-                        {byteStride: 0, byteOffset: 24, format: 'f32', name: 'u_stroke_color_t', arrayLength: 1},
-                        {byteStride: 0, byteOffset: 28, format: 'f32', name: 'u_stroke_width_t', arrayLength: 1},
-                        {byteStride: 0, byteOffset: 32, format: 'f32', name: 'u_stroke_opacity_t', arrayLength: 1},
-                        {byteStride: 0, byteOffset: 36, format: 'f32', name: 'draw_padding', arrayLength: 1}
-                    ]
+                    visibility: 3
                 }
             ],
         };
 
         let bufferLayout: BufferLayout[] = [
-            {name: 'a_pos', format: 'sint16x2', stepMode: 'vertex', byteStride: 4, attributes: [{attribute: 'a_pos', format: 'sint16x2', byteOffset: 0}]},
+            {name: 'a_pos', format: 'sint16x2', stepMode: 'vertex', byteStride: 4},
         ];
 
-        let attrLocation = 1;
-        const binderAttrs = this.programConfigurations.get(layer.id).getAttributeMetadata();
-        for (const attrName of this.programConfigurations.get(layer.id).getBinderAttributes()) {
-            const attrs = binderAttrs[attrName];
-            const componentBytes = (attrs.type == 'Float32' || attrs.type == 'Int32' || attrs.type == 'Uint32') ? 4 :
-                (attrs.type == 'Int16' || attrs.type == 'Uint16') ? 2 : 1;
-
-            shaderLayout.attributes.push({
-                name: attrName,
-                location: attrLocation++,
-                type: toLumaAttributeShaderType(attrs.type, attrs.components)
-            });
-            bufferLayout.push({
-                name: attrName,
-                stepMode: 'vertex',
-                byteStride: attrs.components * componentBytes,
-                format: toLumaVertexFormat(attrs.type, attrs.components)
-            });
-        }
-
+        this.programConfigurations.get(layer.id).updateLumaPipelineLayouts(1, bufferLayout, shaderLayout);
         return [bufferLayout, shaderLayout];
     }
 

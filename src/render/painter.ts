@@ -22,7 +22,7 @@ import {drawSymbols} from './draw_symbol';
 import {drawCircles, drawCirclesLuma} from './draw_circle';
 import {drawHeatmap} from './draw_heatmap';
 import {drawLine} from './draw_line';
-import {drawFill} from './draw_fill';
+import {drawFill, drawFillLuma} from './draw_fill';
 import {drawFillExtrusion} from './draw_fill_extrusion';
 import {drawHillshade} from './draw_hillshade';
 import {drawColorRelief} from './draw_color_relief';
@@ -253,7 +253,7 @@ export class Painter {
             'u_projection_fallback_matrix': 'mat4x4<f32>',
             'u_projection_tile_mercator_coords': 'vec4<f32>',
             'u_projection_clipping_plane': 'vec4<f32>',
-            'u_projection_transition': 'f32'
+            'u_projection_transition': 'f32',
         });
         this.projectionParameterBindingDecl = {
             type: 'uniform',
@@ -275,7 +275,8 @@ export class Painter {
             'u_translate': 'vec2<f32>',
             'u_globe_extrude_scale': 'f32',
             'u_device_pixel_ratio': 'f32',
-            'u_camera_to_center_distance': 'f32'
+            'u_camera_to_center_distance': 'f32',
+            'u_aspect_ratio': 'f32',
         });
         this.globeBufferBindingDecl = {
             type: 'uniform',
@@ -289,6 +290,7 @@ export class Painter {
                 {byteStride: 0, byteOffset: 8, format: 'f32', name: 'u_globe_extrude_scale', arrayLength: 1},
                 {byteStride: 0, byteOffset: 12, format: 'f32', name: 'u_device_pixel_ratio', arrayLength: 1},
                 {byteStride: 0, byteOffset: 16, format: 'f32', name: 'u_camera_to_center_distance', arrayLength: 1},
+                {byteStride: 0, byteOffset: 20, format: 'f32', name: 'u_aspect_ratio', arrayLength: 1},
             ]
         };
     }
@@ -325,7 +327,8 @@ export class Painter {
             'u_translate': translatePosition(this.transform, tile, styleTranslate, styleTranslateAnchor),
             'u_globe_extrude_scale': globeExtrudeScale,
             'u_device_pixel_ratio': this.pixelRatio,
-            'u_camera_to_center_distance': this.transform.cameraToCenterDistance
+            'u_camera_to_center_distance': this.transform.cameraToCenterDistance,
+            'u_aspect_ratio': this.transform.width / this.transform.height
         });
 
         if (!this.globeBuffer) {
@@ -853,8 +856,10 @@ export class Painter {
             drawHeatmap(painter, sourceCache, layer, coords, renderOptions);
         } else if (!pass && isLineStyleLayer(layer)) {
             drawLine(painter, sourceCache, layer, coords, renderOptions);
-        } else if (!pass && isFillStyleLayer(layer)) {
-            drawFill(painter, sourceCache, layer, coords, renderOptions);
+        } else if (isFillStyleLayer(layer)) {
+            pass ?
+                drawFillLuma(painter, sourceCache, layer, coords, renderOptions, pass) :
+                drawFill(painter, sourceCache, layer, coords, renderOptions);
         } else if (!pass && isFillExtrusionStyleLayer(layer)) {
             drawFillExtrusion(painter, sourceCache, layer, coords, renderOptions);
         } else if (!pass && isHillshadeStyleLayer(layer)) {

@@ -23,6 +23,14 @@ layout (std140) uniform ProjectionParameterUBO {
     highp float u_projection_transition;
 };
 
+layout (std140) uniform GlobeProjectionUBO {
+    vec2 u_translate;
+    highp float u_globe_extrude_scale;
+    highp float u_device_pixel_ratio;
+    highp float u_camera_to_center_distance;
+    highp float u_aspect_ratio;
+};
+
 // Unpack a pair of values that have been packed into a single float.
 // The packed values are assumed to be 8-bit unsigned integers, and are
 // packed like so:
@@ -94,7 +102,7 @@ mat3 rotationMatrixFromAxisAngle(vec3 u, float angle) {
 
 // logic for terrain 3d
 
-#ifdef TERRAIN3D
+#ifdef TERRAIN3D // TODO
 uniform sampler2D u_terrain;
 uniform float u_terrain_dim;
 uniform mat4 u_terrain_matrix;
