@@ -102,11 +102,11 @@ class FillRenderPipeline implements FillRenderData {
                 depthWriteEnabled: false,
                 depthCompare: 'less-equal',
                 depthFormat: 'depth24plus-stencil8',
-                blend: true, // TODO: _showOverdrawInspector
+                blend: false, // TODO: _showOverdrawInspector
                 blendColorOperation: 'add',
                 blendAlphaOperation: 'add',
                 blendColorSrcFactor: 'one',
-                blendColorDstFactor: 'one-minus-src',
+                blendColorDstFactor: 'one-minus-src-alpha',
                 blendAlphaSrcFactor: 'one',
                 blendAlphaDstFactor: 'one-minus-src-alpha',
                 cullMode: 'back',

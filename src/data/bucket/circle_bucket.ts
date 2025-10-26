@@ -285,7 +285,7 @@ export class CircleBucket<Layer extends CircleStyleLayer | HeatmapStyleLayer> im
                 blendColorOperation: 'add',
                 blendAlphaOperation: 'add',
                 blendColorSrcFactor: 'one',
-                blendColorDstFactor: 'one-minus-src',
+                blendColorDstFactor: 'one-minus-src-alpha',
                 blendAlphaSrcFactor: 'one',
                 blendAlphaDstFactor: 'one-minus-src-alpha',
                 cullMode: 'back',
