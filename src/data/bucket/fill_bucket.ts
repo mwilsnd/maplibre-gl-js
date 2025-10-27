@@ -18,10 +18,9 @@ import type {
     BucketParameters,
     BucketFeature,
     IndexedFeature,
-    PopulateParameters,
-    BucketUBO
+    PopulateParameters
 } from '../bucket';
-import type {FillStyleLayer} from '../../style/style_layer/fill_style_layer';
+import {FillStyleLayer} from '../../style/style_layer/fill_style_layer';
 import type {Context} from '../../gl/context';
 import type {IndexBuffer} from '../../gl/index_buffer';
 import type {VertexBuffer} from '../../gl/vertex_buffer';
@@ -35,23 +34,21 @@ import {fillLargeMeshArrays} from '../../render/fill_large_mesh_arrays';
 
 import {Painter} from '../../render/painter';
 import {Program} from '../../render/program';
-import {Buffer, RenderPipeline, type ShaderLayout, type BufferLayout, UniformBufferLayout, UniformValue, VertexArray, Shader} from '@luma.gl/core';
+import {Buffer, UniformBufferLayout} from '@luma.gl/core';
 import {Color} from '@maplibre/maplibre-gl-style-spec';
 
-interface FillRenderData {
-    pipeline: RenderPipeline;
+import {
+    BufferSpec,
+    RenderData,
+    blendAdditiveParameters,
+    defaultParameters,
+    transparentDepthParameters
+} from '../../render/render_data';
+
+class FillRenderData extends RenderData<FillStyleLayer> {
     propertyBuffer: Buffer;
-    vertexArray: VertexArray;
 
-    updateBuffers(painter: Painter, layer: FillStyleLayer, bucket: FillBucket);
-}
-
-class FillRenderPipeline implements FillRenderData {
-    pipeline: RenderPipeline;
-    propertyBuffer: Buffer;
-    vertexArray: VertexArray;
-
-    static fillPropertyBuffer: BucketUBO = {
+    static fillPropertyBuffer: BufferSpec = {
         binding: {
             type: 'uniform',
             name: 'FillEvaluatedPropsUBO',
@@ -70,72 +67,25 @@ class FillRenderPipeline implements FillRenderData {
     };
 
     constructor(painter: Painter, layer: FillStyleLayer, bucket: FillBucket, program: Program<any>) {
-        const programConfiguration = bucket.programConfigurations.get(layer.id);
+        super(painter, layer, bucket.programConfigurations.get(layer.id), program,
+            {
+                ...defaultParameters,
+                ...blendAdditiveParameters,
+                ...transparentDepthParameters
+            },
+            [FillRenderData.fillPropertyBuffer.binding],
+            (buffer: VertexBuffer) => buffer.attributes[0].name != 'a_outline_color'
+        );
+
         this.propertyBuffer = painter.context.device.createBuffer({
-            byteLength: FillRenderPipeline.fillPropertyBuffer.layout.byteLength,
+            byteLength: FillRenderData.fillPropertyBuffer.layout.byteLength,
             usage: Buffer.UNIFORM
         });
-
-        const bufferLayout: BufferLayout[] = [
-            {name: 'a_pos', format: 'sint16x2', stepMode: 'vertex', byteStride: 4},
-        ];
-        const shaderLayout: ShaderLayout = {
-            attributes: [
-                {location: 0, name: 'a_pos', type: 'vec2<f16>', stepMode: 'vertex'},
-            ],
-            bindings: [
-                painter.projectionParameterBindingDecl,
-                painter.globeBufferBindingDecl,
-                FillRenderPipeline.fillPropertyBuffer.binding
-            ],
-        };
-        programConfiguration.updateLumaPipelineLayouts(1, bufferLayout, shaderLayout);
-
-        this.pipeline = painter.context.device.createRenderPipeline({
-            id: 'fill-layer',
-            vs: program.vertexShader,
-            fs: program.fragmentShader,
-            topology: 'triangle-list',
-            shaderLayout: shaderLayout,
-            bufferLayout: bufferLayout,
-            parameters: {
-                depthWriteEnabled: false,
-                depthCompare: 'less-equal',
-                depthFormat: 'depth24plus-stencil8',
-                blend: false, // TODO: _showOverdrawInspector
-                blendColorOperation: 'add',
-                blendAlphaOperation: 'add',
-                blendColorSrcFactor: 'one',
-                blendColorDstFactor: 'one-minus-src-alpha',
-                blendAlphaSrcFactor: 'one',
-                blendAlphaDstFactor: 'one-minus-src-alpha',
-                cullMode: 'back',
-                topology: 'triangle-list',
-            }
-        });
-
-        this.vertexArray = painter.context.device.createVertexArray({
-            shaderLayout: this.pipeline.shaderLayout,
-            bufferLayout: this.pipeline.bufferLayout
-        });
-
-        const binderAttrs = bucket.programConfigurations.get(layer.id).getAttributeMetadata();
-        let n = 0;
-        for (const buffer of programConfiguration.getPaintVertexBuffers()) {
-            if (!binderAttrs[buffer.attributes[0].name]) {
-                continue;
-            }
-            if (buffer.attributes[0].name == 'a_outline_color') {
-                continue; // TODO ????
-            }
-
-            this.vertexArray.setBuffer(++n, buffer.getLumaBuffer());
-        }
     }
 
     updateBuffers(painter: Painter, layer: FillStyleLayer, bucket: FillBucket) {
         const binderUniformValues = bucket.programConfigurations.get(layer.id).getUniformPropertyValues(layer.paint, {zoom: (painter.transform.zoom as any)});
-        this.propertyBuffer.write(FillRenderPipeline.fillPropertyBuffer.layout.getData({
+        this.propertyBuffer.write(FillRenderData.fillPropertyBuffer.layout.getData({
             'u_color': binderUniformValues['fill-color'] ?
                 [
                     (binderUniformValues['fill-color'] as Color).r,
@@ -180,7 +130,7 @@ export class FillBucket implements Bucket {
     lumaData: {[_: string]: FillRenderData};
 
 
-    static fillPatternPropertyBuffer: BucketUBO = {
+    static fillPatternPropertyBuffer: BufferSpec = {
         binding: {
             type: 'uniform',
             name: 'FillPatternEvaluatedPropsUBO',
@@ -204,7 +154,7 @@ export class FillBucket implements Bucket {
             
         })
     };
-    static fillOutlinePropertyBuffer: BucketUBO = {
+    static fillOutlinePropertyBuffer: BufferSpec = {
         binding: {
             type: 'uniform',
             name: 'FillOutlineEvaluatedPropsUBO',
@@ -220,7 +170,7 @@ export class FillBucket implements Bucket {
             'u_opacity': 'f32',
         })
     };
-    static fillOutlinePatternPropertyBuffer: BucketUBO = {
+    static fillOutlinePatternPropertyBuffer: BufferSpec = {
         binding: {
             type: 'uniform',
             name: 'FillOutlinePatternEvaluatedPropsUBO',
@@ -358,7 +308,7 @@ export class FillBucket implements Bucket {
             return data;
         }
 
-        const renderData = new FillRenderPipeline(painter, layer, this, program);
+        const renderData = new FillRenderData(painter, layer, this, program);
         renderData.vertexArray.setBuffer(0, this.layoutVertexBuffer.getLumaBuffer());
         renderData.vertexArray.setIndexBuffer(isOutline ? this.indexBuffer2.getLumaBuffer() : this.indexBuffer.getLumaBuffer());
 

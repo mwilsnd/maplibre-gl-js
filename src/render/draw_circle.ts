@@ -8,7 +8,7 @@ import {type OverscaledTileID} from '../source/tile_id';
 import type {Painter, RenderOptions} from './painter';
 import type {SourceCache} from '../source/source_cache';
 import type {CircleStyleLayer} from '../style/style_layer/circle_style_layer';
-import type {CircleBucket, CircleRenderData} from '../data/bucket/circle_bucket';
+import type {CircleBucket} from '../data/bucket/circle_bucket';
 import {type ProgramConfiguration} from '../data/program_configuration';
 import type {VertexBuffer} from '../gl/vertex_buffer';
 import type {IndexBuffer} from '../gl/index_buffer';
@@ -22,7 +22,6 @@ import {pixelsToTileUnits} from '../source/pixels_to_tile_units';
 import type {Tile} from '../source/tile';
 
 import type {RenderPass as LumaPass} from '@luma.gl/core';
-import type {Color} from '@maplibre/maplibre-gl-style-spec';
 
 type LumaTileRenderState = {
     segments: SegmentVector;
@@ -133,40 +132,8 @@ export function drawCirclesLuma(painter: Painter, sourceCache: SourceCache, laye
         const projectionParamterBuffer = painter.getProjectionParameterBuffer(segmentsState.coord, renderOptions);
         const globeBuffer = painter.getGlobeBuffer(segmentsState.tile, segmentsState.globeExtrudeScale, styleTranslate, styleTranslateAnchor);
         const renderData = segmentsState.bucket.getOrCreateRenderData(painter, layer, program);
-        const binderUniformValues = programConfiguration.getUniformPropertyValues(layer.paint, {zoom: (painter.transform.zoom as any)});
 
-        segmentsState.bucket.updateBuffers(
-            renderData.propertyBuffer,
-            {
-                'u_color': binderUniformValues['circle-color'] || [0, 0, 0, 1],
-                'u_stroke_color': binderUniformValues['circle-stroke-color'] ?
-                    [
-                        (binderUniformValues['circle-stroke-color'] as Color).r,
-                        (binderUniformValues['circle-stroke-color'] as Color).g,
-                        (binderUniformValues['circle-stroke-color'] as Color).b,
-                        (binderUniformValues['circle-stroke-color'] as Color).a
-                    ] : [0, 0, 0, 1],
-                'u_radius': binderUniformValues['circle-radius'] || 0,
-                'u_blur': binderUniformValues['circle-blur'] || 0,
-                'u_opacity': binderUniformValues['circle-opacity'] || 0,
-                'u_stroke_width': binderUniformValues['circle-stroke-width'] || 0,
-                'u_stroke_opacity': binderUniformValues['circle-stroke-opacity'] || 0,
-                'u_scale_with_map': +(layer.paint.get('circle-pitch-scale') === 'map'),
-                'u_pitch_with_map': +(segmentsState.pitchWithMap),
-            },
-            renderData.drawBuffer,
-            {
-                'u_extrude_scale': segmentsState.extrudeScale,
-                'u_color_t': binderUniformValues['circle-color-t'] || 0,
-                'u_radius_t': binderUniformValues['circle-radius-t'] || 0,
-                'u_blur_t': binderUniformValues['circle-blur-t'] || 0,
-                'u_opacity_t': binderUniformValues['circle-opacity-t'] || 0,
-                'u_stroke_color_t': binderUniformValues['circle-stroke-color-t'] || 0,
-                'u_stroke_width_t': binderUniformValues['circle-stroke-width-t'] || 0,
-                'u_stroke_opacity_t': binderUniformValues['circle-stroke-opacity-t'] || 0,
-            }
-        );
-
+        renderData.updateBuffers(painter, layer, segmentsState.bucket, segmentsState.pitchWithMap, segmentsState.extrudeScale);
         renderData.pipeline.setBindings({
             'ProjectionParameterUBO': projectionParamterBuffer,
             'GlobeProjectionUBO': globeBuffer,

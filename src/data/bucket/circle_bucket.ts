@@ -29,10 +29,17 @@ import type {ImagePosition} from '../../render/image_atlas';
 import type {VectorTileLayer} from '@mapbox/vector-tile';
 import {type CircleGranularity} from '../../render/subdivision_granularity_settings';
 
-import {toLumaVertexFormat, toLumaAttributeShaderType} from '../../util/luma_format_converter';
 import {Painter} from '../../render/painter';
 import {Program} from '../../render/program';
-import {Buffer, RenderPipeline, type ShaderLayout, type BufferLayout, UniformBufferLayout, UniformValue, VertexArray} from '@luma.gl/core';
+import {Buffer, UniformBufferLayout} from '@luma.gl/core';
+import {
+    BufferSpec,
+    blendAdditiveParameters,
+    defaultParameters,
+    RenderData,
+    transparentDepthParameters
+} from '../../render/render_data';
+import {Color} from '@maplibre/maplibre-gl-style-spec';
 
 const VERTEX_MIN_VALUE = -32768; // -(2^15)
 
@@ -44,11 +51,105 @@ function addCircleVertex(layoutVertexArray, x, y, extrudeX, extrudeY) {
         VERTEX_MIN_VALUE + (y * 8) + extrudeY);
 }
 
-export type CircleRenderData = {
-    pipeline: RenderPipeline;
+class CircleRenderData extends RenderData<CircleStyleLayer> {
     propertyBuffer: Buffer;
     drawBuffer: Buffer;
-    vertexArray: VertexArray;
+
+    static propertyBuffer: BufferSpec = {
+        binding: {
+            type: 'uniform',
+            name: 'CircleEvaluatedPropsUBO',
+            group: 0,
+            location: 2,
+            minBindingSize: 64,
+            visibility: 3,
+        },
+        layout: new UniformBufferLayout({
+            'u_color': 'vec4<f32>',
+            'u_stroke_color': 'vec4<f32>',
+            'u_radius': 'f32',
+            'u_blur': 'f32',
+            'u_opacity': 'f32',
+            'u_stroke_width': 'f32',
+            'u_stroke_opacity': 'f32',
+            'u_scale_with_map': 'i32',
+            'u_pitch_with_map': 'i32',
+            'u_padding': 'i32'
+        })
+    };
+
+    static drawBuffer: BufferSpec = {
+        binding: {
+            type: 'uniform',
+            name: 'DrawUBO',
+            group: 0,
+            location: 3,
+            minBindingSize: 40,
+            visibility: 3,
+        },
+        layout: new UniformBufferLayout({
+            'u_extrude_scale': 'vec2<f32>',
+            'u_color_t': 'f32',
+            'u_radius_t': 'f32',
+            'u_blur_t': 'f32',
+            'u_opacity_t': 'f32',
+            'u_stroke_color_t': 'f32',
+            'u_stroke_width_t': 'f32',
+            'u_stroke_opacity_t': 'f32',
+        })
+    };
+
+    constructor(painter: Painter, layer: CircleStyleLayer, bucket: CircleBucket<any>, program: Program<any>) {
+        super(painter, layer, bucket.programConfigurations.get(layer.id), program,
+            {
+                ...defaultParameters,
+                ...blendAdditiveParameters,
+                ...transparentDepthParameters
+            },
+            [CircleRenderData.propertyBuffer.binding, CircleRenderData.drawBuffer.binding]
+        );
+
+        this.propertyBuffer = painter.context.device.createBuffer({
+            byteLength: CircleRenderData.propertyBuffer.layout.byteLength,
+            usage: Buffer.UNIFORM
+        });
+
+        this.drawBuffer = painter.context.device.createBuffer({
+            byteLength: CircleRenderData.drawBuffer.layout.byteLength,
+            usage: Buffer.UNIFORM
+        });
+    }
+
+    updateBuffers(painter: Painter, layer: CircleStyleLayer, bucket: CircleBucket<any>, pitchWithMap: boolean, extrudeScale: [number, number]) {
+        const binderUniformValues = bucket.programConfigurations.get(layer.id).getUniformPropertyValues(layer.paint, {zoom: (painter.transform.zoom as any)});
+        this.propertyBuffer.write(CircleRenderData.propertyBuffer.layout.getData({
+            'u_color': binderUniformValues['circle-color'] || [0, 0, 0, 1],
+            'u_stroke_color': binderUniformValues['circle-stroke-color'] ?
+                [
+                    (binderUniformValues['circle-stroke-color'] as Color).r,
+                    (binderUniformValues['circle-stroke-color'] as Color).g,
+                    (binderUniformValues['circle-stroke-color'] as Color).b,
+                    (binderUniformValues['circle-stroke-color'] as Color).a
+                ] : [0, 0, 0, 1],
+            'u_radius': binderUniformValues['circle-radius'] || 0,
+            'u_blur': binderUniformValues['circle-blur'] || 0,
+            'u_opacity': binderUniformValues['circle-opacity'] || 0,
+            'u_stroke_width': binderUniformValues['circle-stroke-width'] || 0,
+            'u_stroke_opacity': binderUniformValues['circle-stroke-opacity'] || 0,
+            'u_scale_with_map': +(layer.paint.get('circle-pitch-scale') === 'map'),
+            'u_pitch_with_map': +(pitchWithMap),
+        }));
+        this.drawBuffer.write(CircleRenderData.drawBuffer.layout.getData({
+            'u_extrude_scale': extrudeScale,
+            'u_color_t': binderUniformValues['circle-color-t'] || 0,
+            'u_radius_t': binderUniformValues['circle-radius-t'] || 0,
+            'u_blur_t': binderUniformValues['circle-blur-t'] || 0,    
+            'u_opacity_t': binderUniformValues['circle-opacity-t'] || 0,
+            'u_stroke_color_t': binderUniformValues['circle-stroke-color-t'] || 0,
+            'u_stroke_width_t': binderUniformValues['circle-stroke-width-t'] || 0,
+            'u_stroke_opacity_t': binderUniformValues['circle-stroke-opacity-t'] || 0,
+        }));
+    }
 }
 
 /**
@@ -82,30 +183,6 @@ export class CircleBucket<Layer extends CircleStyleLayer | HeatmapStyleLayer> im
     uploaded: boolean;
 
     lumaData: {[_: string]: CircleRenderData};
-
-    static propBufferLayout = new UniformBufferLayout({
-        'u_color': 'vec4<f32>',
-        'u_stroke_color': 'vec4<f32>',
-        'u_radius': 'f32',
-        'u_blur': 'f32',
-        'u_opacity': 'f32',
-        'u_stroke_width': 'f32',
-        'u_stroke_opacity': 'f32',
-        'u_scale_with_map': 'i32',
-        'u_pitch_with_map': 'i32',
-        'u_padding': 'i32'
-    });
-
-    static drawBufferLayout = new UniformBufferLayout({
-        'u_extrude_scale': 'vec2<f32>',
-        'u_color_t': 'f32',
-        'u_radius_t': 'f32',
-        'u_blur_t': 'f32',
-        'u_opacity_t': 'f32',
-        'u_stroke_color_t': 'f32',
-        'u_stroke_width_t': 'f32',
-        'u_stroke_opacity_t': 'f32',
-    });
 
     constructor(options: BucketParameters<Layer>) {
         this.zoom = options.zoom;
@@ -208,109 +285,15 @@ export class CircleBucket<Layer extends CircleStyleLayer | HeatmapStyleLayer> im
         this.uploaded = true;
     }
 
-    createUniformBuffers(context: Context): [Buffer, Buffer]
-    {
-        return [
-            context.device.createBuffer({
-                byteLength: (CircleBucket<Layer>).propBufferLayout.byteLength,
-                usage: Buffer.UNIFORM
-            }),
-            context.device.createBuffer({
-                byteLength: (CircleBucket<Layer>).drawBufferLayout.byteLength,
-                usage: Buffer.UNIFORM
-            })
-        ];
-    }
-
-    createPipelineLayouts(painter: Painter, layer: CircleStyleLayer): [BufferLayout[], ShaderLayout] {
-        let shaderLayout: ShaderLayout = {
-            attributes: [
-                {location: 0, name: 'a_pos', type: 'vec2<f16>', stepMode: 'vertex'},
-            ],
-            bindings: [
-                painter.projectionParameterBindingDecl,
-                painter.globeBufferBindingDecl,
-                {
-                    type: 'uniform',
-                    name: 'CircleEvaluatedPropsUBO',
-                    group: 0,
-                    location: 2,
-                    minBindingSize: 64,
-                    visibility: 3
-                },
-                {
-                    type: 'uniform',
-                    name: 'DrawUBO',
-                    group: 0,
-                    location: 3,
-                    minBindingSize: 40,
-                    visibility: 3
-                }
-            ],
-        };
-
-        let bufferLayout: BufferLayout[] = [
-            {name: 'a_pos', format: 'sint16x2', stepMode: 'vertex', byteStride: 4},
-        ];
-
-        this.programConfigurations.get(layer.id).updateLumaPipelineLayouts(1, bufferLayout, shaderLayout);
-        return [bufferLayout, shaderLayout];
-    }
-
-    updateBuffers(propBuffer: Buffer, propBufferData: Record<string, UniformValue>, drawBuffer: Buffer, drawBufferData: Record<string, UniformValue>,) {
-        propBuffer.write((CircleBucket<Layer>).propBufferLayout.getData(propBufferData));
-        drawBuffer.write((CircleBucket<Layer>).drawBufferLayout.getData(drawBufferData));
-    }
-
-    getOrCreateRenderData(painter: Painter, layer: CircleStyleLayer, program: Program<any>): CircleRenderData
-    {
+    getOrCreateRenderData(painter: Painter, layer: CircleStyleLayer, program: Program<any>): CircleRenderData {
         const data = this.lumaData[layer.id];
         if (data) {
             return data;
         }
 
-        const [bufferLayout, shaderLayout] = this.createPipelineLayouts(painter, layer);
-        const pipeline = painter.context.device.createRenderPipeline({
-            id: 'circle-layer',
-            vs: program.vertexShader,
-            fs: program.fragmentShader,
-            topology: 'triangle-list',
-            shaderLayout: shaderLayout,
-            bufferLayout: bufferLayout,
-            parameters: {
-                depthWriteEnabled: false,
-                depthCompare: 'less-equal',
-                depthFormat: 'depth24plus-stencil8',
-                blend: true, // TODO: _showOverdrawInspector
-                blendColorOperation: 'add',
-                blendAlphaOperation: 'add',
-                blendColorSrcFactor: 'one',
-                blendColorDstFactor: 'one-minus-src-alpha',
-                blendAlphaSrcFactor: 'one',
-                blendAlphaDstFactor: 'one-minus-src-alpha',
-                cullMode: 'back',
-                topology: 'triangle-list',
-            }
-        });
-
-        const [prop, draw] = this.createUniformBuffers(painter.context);
-        const renderData: CircleRenderData = {
-            pipeline: pipeline,
-            propertyBuffer: prop,
-            drawBuffer: draw,
-            vertexArray: painter.context.device.createVertexArray({
-                shaderLayout: pipeline.shaderLayout,
-                bufferLayout: pipeline.bufferLayout
-            })
-        };
-
+        const renderData = new CircleRenderData(painter, layer, this, program);
         renderData.vertexArray.setBuffer(0, this.layoutVertexBuffer.getLumaBuffer());
         renderData.vertexArray.setIndexBuffer(this.indexBuffer.getLumaBuffer());
-
-        let n = 0;
-        for (const buffer of this.programConfigurations.get(layer.id).getPaintVertexBuffers()) {
-            renderData.vertexArray.setBuffer(++n, buffer.getLumaBuffer());
-        }
 
         this.lumaData[layer.id] = renderData
         return renderData;
