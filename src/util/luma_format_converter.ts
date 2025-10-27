@@ -14,6 +14,7 @@ const AttributeShaderTypeLookup = {
     'Float32': 'f32',
     'Int32': 'i32',
     'Uint32': 'u32',
+    'Uint16': 'u32',
     'Float16': 'f16',
 };
 

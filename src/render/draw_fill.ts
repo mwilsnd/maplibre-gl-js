@@ -12,7 +12,7 @@ import {
 import type {Painter, RenderOptions} from './painter';
 import type {SourceCache} from '../source/source_cache';
 import type {FillStyleLayer} from '../style/style_layer/fill_style_layer';
-import type {FillBucket} from '../data/bucket/fill_bucket';
+import type {FillBucket, FillPatternRenderData, FillRenderData} from '../data/bucket/fill_bucket';
 import type {OverscaledTileID} from '../source/tile_id';
 import {updatePatternPositionsInProgram} from './update_pattern_positions_in_program';
 import {translatePosition} from '../util/util';
@@ -90,7 +90,7 @@ function drawFillTilesLuma(
         drawMode = 'lines';
     }
 
-    if (isOutline || image) {
+    if (isOutline) {
         return; // TODO
     }
 
@@ -108,18 +108,43 @@ function drawFillTilesLuma(
         const terrainData = painter.style.map.terrain && painter.style.map.terrain.getTerrainData(coord);
 
         if (image) {
-            painter.context.activeTexture.set(gl.TEXTURE0);
-            tile.imageAtlasTexture.bind(gl.LINEAR, gl.CLAMP_TO_EDGE);
             programConfiguration.updatePaintBuffers(painter.context, crossfade);
         }
 
         updatePatternPositionsInProgram(programConfiguration, fillPropertyName, constantPattern, tile, layer);
 
         const translateForUniforms = translatePosition(transform, tile, propertyFillTranslate, propertyFillTranslateAnchor);
+        const stencil = painter.stencilModeForClipping(coord); // TODO
+        let renderData;
 
         if (!isOutline) {
             segments = bucket.segments;
-            //uniformValues = image ? fillPatternUniformValues(painter, crossfade, tile, translateForUniforms) : fillUniformValues(translateForUniforms);
+
+            // Note: TODO: Remember to be sure these are always called, to update the buffer contents for the draw
+            const projectionBuffer = painter.getProjectionParameterBuffer(coord, {
+                    isRenderingGlobe: renderOptions.isRenderingGlobe,
+                    isRenderingToTexture: renderOptions.isRenderingToTexture,
+                    isRenderingLuma: true
+            });
+            const globeBuffer = painter.getGlobeBuffer(tile, 0, propertyFillTranslate, propertyFillTranslateAnchor);
+
+            if (image) {
+                renderData = bucket.getOrCreateRenderData(painter, layer, program, isOutline, image && true, (data: FillPatternRenderData) => data.pipeline.setBindings({
+                    'ProjectionParameterUBO': projectionBuffer,
+                    'GlobeProjectionUBO': globeBuffer,
+                    'FillPatternUniforms': data.propertyBuffer,
+                    'DrawUJniforms': data.drawBuffer,
+                    'u_image': tile.imageAtlasTexture.lumaTexture
+                }));
+                (renderData as FillPatternRenderData).updateBuffers(painter, layer, bucket, tile);
+            } else {
+                renderData = bucket.getOrCreateRenderData(painter, layer, program, isOutline, image && true, (data: FillRenderData) => data.pipeline.setBindings({
+                    'ProjectionParameterUBO': projectionBuffer,
+                    'GlobeProjectionUBO': painter.getGlobeBuffer(tile, 0, propertyFillTranslate, propertyFillTranslateAnchor),
+                    'FillUniforms': data.propertyBuffer
+                }));
+                renderData.updateBuffers(painter, layer, bucket);
+            }
         } else {
             segments = bucket.segments2;
             //const drawingBufferSize = [gl.drawingBufferWidth, gl.drawingBufferHeight] as [number, number];
@@ -128,31 +153,7 @@ function drawFillTilesLuma(
                 fillOutlineUniformValues(drawingBufferSize, translateForUniforms);*/
         }
 
-        const stencil = painter.stencilModeForClipping(coord); // TODO
-
-        const renderData = bucket.getOrCreateRenderData(painter, layer, program, isOutline, image && true);
-        renderData.updateBuffers(painter, layer, bucket);
-        renderData.pipeline.setBindings({
-            'ProjectionParameterUBO': painter.getProjectionParameterBuffer(coord, {
-                isRenderingGlobe: renderOptions.isRenderingGlobe, isRenderingToTexture: renderOptions.isRenderingToTexture, isRenderingLuma: true}),
-            'GlobeProjectionUBO': painter.getGlobeBuffer(tile, 0, propertyFillTranslate, propertyFillTranslateAnchor),
-            'FillEvaluatedPropsUBO': renderData.propertyBuffer
-        });
-
-        for (const segment of segments.get()) {
-            renderData.pipeline.draw({
-                topology: 'triangle-list',
-                renderPass: renderPass,
-                vertexArray: renderData.vertexArray,
-                firstVertex: segment.primitiveOffset * 3 * 2,
-                vertexCount: segment.primitiveLength * 3,
-            });
-        }
-
-        /*program.draw(painter.context, drawMode, depthMode,
-            stencil, colorMode, CullFaceMode.backCCW, uniformValues, terrainData, projectionData,
-            layer.id, bucket.layoutVertexBuffer, indexBuffer, segments,
-            layer.paint, painter.transform.zoom, programConfiguration);*/
+        renderData.drawSegments(segments, renderPass);
     }
 }
 

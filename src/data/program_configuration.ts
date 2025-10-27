@@ -1,5 +1,5 @@
 import {packUint8ToFloat} from '../shaders/encode_attribute';
-import {type Color, supportsPropertyExpression} from '@maplibre/maplibre-gl-style-spec';
+import {Color, supportsPropertyExpression} from '@maplibre/maplibre-gl-style-spec';
 import {register} from '../util/web_worker_transfer';
 import {PossiblyEvaluatedPropertyValue} from '../style/properties';
 import {StructArrayLayout1f4, StructArrayLayout2f8, StructArrayLayout4f16, PatternLayoutArray} from './array_types.g';
@@ -31,6 +31,8 @@ import type {VectorTileLayer} from '@mapbox/vector-tile';
 import { BufferLayout, ShaderLayout } from '@luma.gl/core/index';
 
 import {toLumaVertexFormat, toLumaAttributeShaderType} from '../util/luma_format_converter';
+
+export type BinderUniformValue = number | [number, number] | [number, number, number, number];
 
 export type BinderUniform = {
     name: string;
@@ -107,7 +109,11 @@ interface UniformBinder {
     getBinding(context: Context, location: WebGLUniformLocation, name: string): Partial<Uniform<any>>;
 }
 
-class ConstantBinder implements UniformBinder {
+function isUniformBinder(object: any): object is UniformBinder {
+    return 'uniformNames' in object;
+}
+
+export class ConstantBinder implements UniformBinder {
     value: unknown;
     type: string;
     uniformNames: Array<string>;
@@ -133,7 +139,7 @@ class ConstantBinder implements UniformBinder {
     }
 }
 
-class CrossFadedConstantBinder implements UniformBinder {
+export class CrossFadedConstantBinder implements UniformBinder {
     uniformNames: Array<string>;
     patternFrom: Array<number>;
     patternTo: Array<number>;
@@ -238,7 +244,7 @@ class SourceExpressionBinder implements AttributeBinder {
     }
 }
 
-class CompositeExpressionBinder implements AttributeBinder, UniformBinder {
+export class CompositeExpressionBinder implements AttributeBinder, UniformBinder {
     expression: CompositeExpression;
     uniformNames: Array<string>;
     type: string;
@@ -313,10 +319,13 @@ class CompositeExpressionBinder implements AttributeBinder, UniformBinder {
         }
     }
 
-    setUniform(uniform: Uniform<any>, globals: GlobalProperties): void {
+    getFactor(globals: GlobalProperties): number {
         const currentZoom = this.useIntegerZoom ? Math.floor(globals.zoom) : globals.zoom;
-        const factor = clamp(this.expression.interpolationFactor(currentZoom, this.zoom, this.zoom + 1), 0, 1);
-        uniform.set(factor);
+        return clamp(this.expression.interpolationFactor(currentZoom, this.zoom, this.zoom + 1), 0, 1);
+    }
+
+    setUniform(uniform: Uniform<any>, globals: GlobalProperties): void {
+        uniform.set(this.getFactor(globals));
     }
 
     getBinding(context: Context, location: WebGLUniformLocation, _: string): Uniform1f {
@@ -602,6 +611,40 @@ export class ProgramConfiguration {
             }
         }
         return uniforms;
+    }
+
+    getUniformBinder(name: string): UniformBinder {
+        const binder = this.binders[name];
+        if (binder && isUniformBinder(binder)) {
+            return binder;
+        }
+    }
+
+    getBinderValueOr(name: string, key: string, or: BinderUniformValue): BinderUniformValue {
+        const binder = this.binders[name];
+        if (binder && isUniformBinder(binder)) {
+            if (binder instanceof CompositeExpressionBinder) {
+                return or;
+            }
+
+            const k = binder[key];
+            if (k === undefined) { // TODO
+                debugger;
+            }
+
+            if (k instanceof Color) {
+                return [k.r, k.g, k.b, k.a];
+            } else {
+                return k;
+            }
+        } else {
+            return or;
+        }
+    }
+
+    getBinderFactor(name: string, globals: GlobalProperties): number {
+        const binder = this.binders[name];
+        return binder instanceof CompositeExpressionBinder ? binder.getFactor(globals) : 0;
     }
 
     /**

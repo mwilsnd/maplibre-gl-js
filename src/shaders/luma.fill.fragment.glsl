@@ -1,4 +1,4 @@
-layout (std140) uniform FillEvaluatedPropsUBO {
+layout (std140) uniform FillUniforms {
     highp vec4 u_color;
     highp vec2 u_fill_translate;
     lowp float u_color_t;

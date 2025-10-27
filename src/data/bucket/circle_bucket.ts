@@ -39,7 +39,6 @@ import {
     RenderData,
     transparentDepthParameters
 } from '../../render/render_data';
-import {Color} from '@maplibre/maplibre-gl-style-spec';
 
 const VERTEX_MIN_VALUE = -32768; // -(2^15)
 
@@ -51,14 +50,14 @@ function addCircleVertex(layoutVertexArray, x, y, extrudeX, extrudeY) {
         VERTEX_MIN_VALUE + (y * 8) + extrudeY);
 }
 
-class CircleRenderData extends RenderData<CircleStyleLayer> {
+export class CircleRenderData extends RenderData<CircleStyleLayer> {
     propertyBuffer: Buffer;
     drawBuffer: Buffer;
 
     static propertyBuffer: BufferSpec = {
         binding: {
             type: 'uniform',
-            name: 'CircleEvaluatedPropsUBO',
+            name: 'CircleUniforms',
             group: 0,
             location: 2,
             minBindingSize: 64,
@@ -121,33 +120,28 @@ class CircleRenderData extends RenderData<CircleStyleLayer> {
     }
 
     updateBuffers(painter: Painter, layer: CircleStyleLayer, bucket: CircleBucket<any>, pitchWithMap: boolean, extrudeScale: [number, number]) {
-        const binderUniformValues = bucket.programConfigurations.get(layer.id).getUniformPropertyValues(layer.paint, {zoom: (painter.transform.zoom as any)});
+        const globals = {zoom: (painter.transform.zoom as any)};
+        const programConfiguration = bucket.programConfigurations.get(layer.id);
         this.propertyBuffer.write(CircleRenderData.propertyBuffer.layout.getData({
-            'u_color': binderUniformValues['circle-color'] || [0, 0, 0, 1],
-            'u_stroke_color': binderUniformValues['circle-stroke-color'] ?
-                [
-                    (binderUniformValues['circle-stroke-color'] as Color).r,
-                    (binderUniformValues['circle-stroke-color'] as Color).g,
-                    (binderUniformValues['circle-stroke-color'] as Color).b,
-                    (binderUniformValues['circle-stroke-color'] as Color).a
-                ] : [0, 0, 0, 1],
-            'u_radius': binderUniformValues['circle-radius'] || 0,
-            'u_blur': binderUniformValues['circle-blur'] || 0,
-            'u_opacity': binderUniformValues['circle-opacity'] || 0,
-            'u_stroke_width': binderUniformValues['circle-stroke-width'] || 0,
-            'u_stroke_opacity': binderUniformValues['circle-stroke-opacity'] || 0,
+            'u_color': programConfiguration.getBinderValueOr('circle-color', 'value', [0, 0, 0, 0]),
+            'u_stroke_color': programConfiguration.getBinderValueOr('circle-stroke-color', 'value', [0, 0, 0, 0]),
+            'u_radius': programConfiguration.getBinderValueOr('circle-radius', 'value', 0),
+            'u_blur': programConfiguration.getBinderValueOr('circle-blur', 'value', 0),
+            'u_opacity': programConfiguration.getBinderValueOr('circle-opacity', 'value', 0),
+            'u_stroke_width': programConfiguration.getBinderValueOr('circle-stroke-width', 'value', 0),
+            'u_stroke_opacity': programConfiguration.getBinderValueOr('circle-stroke-opacity', 'value', 0),
             'u_scale_with_map': +(layer.paint.get('circle-pitch-scale') === 'map'),
             'u_pitch_with_map': +(pitchWithMap),
         }));
         this.drawBuffer.write(CircleRenderData.drawBuffer.layout.getData({
             'u_extrude_scale': extrudeScale,
-            'u_color_t': binderUniformValues['circle-color-t'] || 0,
-            'u_radius_t': binderUniformValues['circle-radius-t'] || 0,
-            'u_blur_t': binderUniformValues['circle-blur-t'] || 0,    
-            'u_opacity_t': binderUniformValues['circle-opacity-t'] || 0,
-            'u_stroke_color_t': binderUniformValues['circle-stroke-color-t'] || 0,
-            'u_stroke_width_t': binderUniformValues['circle-stroke-width-t'] || 0,
-            'u_stroke_opacity_t': binderUniformValues['circle-stroke-opacity-t'] || 0,
+            'u_color_t': programConfiguration.getBinderFactor('circle-color', globals),
+            'u_radius_t': programConfiguration.getBinderFactor('circle-radius', globals),
+            'u_blur_t': programConfiguration.getBinderFactor('circle-blur', globals),
+            'u_opacity_t': programConfiguration.getBinderFactor('circle-opacity', globals),
+            'u_stroke_color_t': programConfiguration.getBinderFactor('circle-stroke-color', globals),
+            'u_stroke_width_t': programConfiguration.getBinderFactor('circle-stroke-width', globals),
+            'u_stroke_opacity_t': programConfiguration.getBinderFactor('circle-stroke-opacity', globals),
         }));
     }
 }
@@ -285,7 +279,7 @@ export class CircleBucket<Layer extends CircleStyleLayer | HeatmapStyleLayer> im
         this.uploaded = true;
     }
 
-    getOrCreateRenderData(painter: Painter, layer: CircleStyleLayer, program: Program<any>): CircleRenderData {
+    getOrCreateRenderData(painter: Painter, layer: CircleStyleLayer, program: Program<any>, onCreated?: (_: CircleRenderData) => void): CircleRenderData {
         const data = this.lumaData[layer.id];
         if (data) {
             return data;
@@ -294,6 +288,7 @@ export class CircleBucket<Layer extends CircleStyleLayer | HeatmapStyleLayer> im
         const renderData = new CircleRenderData(painter, layer, this, program);
         renderData.vertexArray.setBuffer(0, this.layoutVertexBuffer.getLumaBuffer());
         renderData.vertexArray.setIndexBuffer(this.indexBuffer.getLumaBuffer());
+        onCreated(renderData);
 
         this.lumaData[layer.id] = renderData
         return renderData;

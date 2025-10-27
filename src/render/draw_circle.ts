@@ -8,7 +8,7 @@ import {type OverscaledTileID} from '../source/tile_id';
 import type {Painter, RenderOptions} from './painter';
 import type {SourceCache} from '../source/source_cache';
 import type {CircleStyleLayer} from '../style/style_layer/circle_style_layer';
-import type {CircleBucket} from '../data/bucket/circle_bucket';
+import type {CircleBucket, CircleRenderData} from '../data/bucket/circle_bucket';
 import {type ProgramConfiguration} from '../data/program_configuration';
 import type {VertexBuffer} from '../gl/vertex_buffer';
 import type {IndexBuffer} from '../gl/index_buffer';
@@ -129,27 +129,18 @@ export function drawCirclesLuma(painter: Painter, sourceCache: SourceCache, laye
         const programConfiguration = segmentsState.bucket.programConfigurations.get(layer.id);
         const program = painter.useProgram('luma_circle', programConfiguration, null, null, true);
 
+        // TODO: calling these methods currently updates the buffers
         const projectionParamterBuffer = painter.getProjectionParameterBuffer(segmentsState.coord, renderOptions);
         const globeBuffer = painter.getGlobeBuffer(segmentsState.tile, segmentsState.globeExtrudeScale, styleTranslate, styleTranslateAnchor);
-        const renderData = segmentsState.bucket.getOrCreateRenderData(painter, layer, program);
-
-        renderData.updateBuffers(painter, layer, segmentsState.bucket, segmentsState.pitchWithMap, segmentsState.extrudeScale);
-        renderData.pipeline.setBindings({
+        const renderData = segmentsState.bucket.getOrCreateRenderData(painter, layer, program, (data: CircleRenderData) => data.pipeline.setBindings({
             'ProjectionParameterUBO': projectionParamterBuffer,
             'GlobeProjectionUBO': globeBuffer,
-            'CircleEvaluatedPropsUBO': renderData.propertyBuffer,
-            'DrawUBO': renderData.drawBuffer,
-        });
+            'CircleUniforms': data.propertyBuffer,
+            'DrawUBO': data.drawBuffer,
+        }));
 
-        for (const segment of segmentsState.segments.get()) {
-            renderData.pipeline.draw({
-                topology: 'triangle-list',
-                renderPass: renderPass,
-                vertexArray: renderData.vertexArray,
-                firstVertex: segment.primitiveOffset * 3 * 2,
-                vertexCount: segment.primitiveLength * 3,
-            });
-        }
+        renderData.updateBuffers(painter, layer, segmentsState.bucket, segmentsState.pitchWithMap, segmentsState.extrudeScale);
+        renderData.drawSegments(segmentsState.segments, renderPass);
     }
 }
 

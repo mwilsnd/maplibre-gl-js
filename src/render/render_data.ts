@@ -9,11 +9,13 @@ import {
     VertexArray,
     DepthStencilParameters,
     RenderPipelineParameters,
-    BindingDeclaration
+    BindingDeclaration,
+    RenderPass
 } from '@luma.gl/core';
 import {Program} from './program';
 import {ProgramConfiguration} from '../data/program_configuration';
 import {VertexBuffer} from '../gl/vertex_buffer';
+import {SegmentVector} from '../data/segment';
 
 export type BufferSpec = {
     binding: BindingDeclaration;
@@ -66,12 +68,12 @@ export class RenderData<LayerStyle extends StyleLayer> {
         pipelineParams: RenderPipelineParameters, bufferBindings: BindingDeclaration[], attributeBindingPredicate?: RenderDataAttributeBindingPredicate)
     {
         const bufferLayout: BufferLayout[] = [
-            {name: 'a_pos', format: 'sint16x2', stepMode: 'vertex', byteStride: 4},
+            {name: 'a_pos', format: 'sint16x2', byteStride: 4},
         ];
 
         const shaderLayout: ShaderLayout = {
             attributes: [
-                {location: 0, name: 'a_pos', type: 'vec2<f16>', stepMode: 'vertex'},
+                {location: 0, name: 'a_pos', type: 'vec2<f16>'},
             ],
             bindings: [
                 painter.projectionParameterBindingDecl,
@@ -108,6 +110,18 @@ export class RenderData<LayerStyle extends StyleLayer> {
             }
 
             this.vertexArray.setBuffer(++n, buffer.getLumaBuffer());
+        }
+    }
+
+    drawSegments(segments: SegmentVector, pass: RenderPass) {
+        for (const segment of segments.get()) {
+            this.pipeline.draw({
+                topology: 'triangle-list',
+                renderPass: pass,
+                vertexArray: this.vertexArray,
+                firstVertex: segment.primitiveOffset * 3 * 2,
+                vertexCount: segment.primitiveLength * 3,
+            });
         }
     }
 }

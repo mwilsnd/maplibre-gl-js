@@ -2,7 +2,7 @@ import {FillLayoutArray} from '../array_types.g';
 
 import {members as layoutAttributes} from './fill_attributes';
 import {SegmentVector} from '../segment';
-import {ProgramConfigurationSet} from '../program_configuration';
+import {CompositeExpressionBinder, ConstantBinder, CrossFadedConstantBinder, ProgramConfigurationSet} from '../program_configuration';
 import {LineIndexArray, TriangleIndexArray} from '../index_array_type';
 import {classifyRings} from '@maplibre/maplibre-gl-style-spec';
 const EARCUT_MAX_RINGS = 500;
@@ -13,6 +13,8 @@ import {toEvaluationFeature} from '../evaluation_feature';
 import {EvaluationParameters} from '../../style/evaluation_parameters';
 
 import type {CanonicalTileID} from '../../source/tile_id';
+import {Tile} from '../../source/tile';
+import {pixelsToTileUnits} from '../../source/pixels_to_tile_units';
 import type {
     Bucket,
     BucketParameters,
@@ -45,13 +47,13 @@ import {
     transparentDepthParameters
 } from '../../render/render_data';
 
-class FillRenderData extends RenderData<FillStyleLayer> {
+export class FillRenderData extends RenderData<FillStyleLayer> {
     propertyBuffer: Buffer;
 
-    static fillPropertyBuffer: BufferSpec = {
+    static propertyBufferSpec: BufferSpec = {
         binding: {
             type: 'uniform',
-            name: 'FillEvaluatedPropsUBO',
+            name: 'FillUniforms',
             group: 0,
             location: 2,
             minBindingSize: 32,
@@ -73,30 +75,144 @@ class FillRenderData extends RenderData<FillStyleLayer> {
                 ...blendAdditiveParameters,
                 ...transparentDepthParameters
             },
-            [FillRenderData.fillPropertyBuffer.binding],
+            [FillRenderData.propertyBufferSpec.binding],
             (buffer: VertexBuffer) => buffer.attributes[0].name != 'a_outline_color'
         );
 
         this.propertyBuffer = painter.context.device.createBuffer({
-            byteLength: FillRenderData.fillPropertyBuffer.layout.byteLength,
+            byteLength: FillRenderData.propertyBufferSpec.layout.byteLength,
             usage: Buffer.UNIFORM
         });
     }
 
     updateBuffers(painter: Painter, layer: FillStyleLayer, bucket: FillBucket) {
-        const binderUniformValues = bucket.programConfigurations.get(layer.id).getUniformPropertyValues(layer.paint, {zoom: (painter.transform.zoom as any)});
-        this.propertyBuffer.write(FillRenderData.fillPropertyBuffer.layout.getData({
-            'u_color': binderUniformValues['fill-color'] ?
-                [
-                    (binderUniformValues['fill-color'] as Color).r,
-                    (binderUniformValues['fill-color'] as Color).g,
-                    (binderUniformValues['fill-color'] as Color).b,
-                    (binderUniformValues['fill-color'] as Color).a
-                ] : [0, 0, 0, 1],
-            'u_fill_translate': binderUniformValues['fill-translate'] || [0, 0],
-            'u_color_t': binderUniformValues['fill-color-t'] || 0,
-            'u_opacity': binderUniformValues['fill-opacity'] || 0,
-            'u_opacity_t': binderUniformValues['fill-opacity-t'] || 0,
+        const globals = {zoom: (painter.transform.zoom as any)};
+        const programConfiguration = bucket.programConfigurations.get(layer.id);
+        this.propertyBuffer.write(FillRenderData.propertyBufferSpec.layout.getData({
+            'u_color': programConfiguration.getBinderValueOr('fill-color', 'value', [0, 0, 0, 0]),
+            'u_fill_translate': programConfiguration.getBinderValueOr('fill-translate', 'value', [0, 0]),
+            'u_color_t': programConfiguration.getBinderFactor('fill-color', globals),
+            'u_opacity':  programConfiguration.getBinderValueOr('fill-opacity', 'value', 0),
+            'u_opacity_t': programConfiguration.getBinderFactor('fill-opacity', globals),
+        }));
+    }
+}
+
+export class FillPatternRenderData extends RenderData<FillStyleLayer> {
+    propertyBuffer: Buffer;
+    drawBuffer: Buffer;
+
+    static propertyBufferSpec: BufferSpec = {
+        binding: {
+            type: 'uniform',
+            name: 'FillPatternUniforms',
+            group: 0,
+            location: 2,
+            minBindingSize: 52,
+            visibility: 3,
+        },
+        layout: new UniformBufferLayout({
+            'u_pattern_from': 'vec4<f32>',
+            'u_pattern_to': 'vec4<f32>',
+            'u_fill_translate': 'vec2<f32>', 
+            'u_texsize': 'vec2<f32>',
+            'u_pixel_coord_upper': 'vec2<f32>',
+            'u_pixel_coord_lower': 'vec2<f32>',
+            'u_scale': 'vec3<f32>',
+            'u_fade': 'f32',
+            'u_opacity': 'f32',
+            'u_pixel_ratio_from': 'f32',
+            'u_pixel_ratio_to': 'f32',
+        })
+    };
+
+    static drawBufferSpec: BufferSpec = {
+        binding: {
+            type: 'uniform',
+            name: 'DrawUJniforms',
+            group: 0,
+            location: 2,
+            minBindingSize: 52,
+            visibility: 3,
+        },
+        layout: new UniformBufferLayout({
+            'u_pattern_from_t': 'f32', 
+            'u_pattern_to_t': 'f32',
+            'u_opacity_t': 'f32',
+            'u_pixel_ratio_from_t': 'f32',
+            'u_pixel_ratio_to_t': 'f32'
+        })
+    };
+
+    constructor(painter: Painter, layer: FillStyleLayer, bucket: FillBucket, program: Program<any>) {
+        super(painter, layer, bucket.programConfigurations.get(layer.id), program,
+            {
+                ...defaultParameters,
+                ...blendAdditiveParameters,
+                ...transparentDepthParameters
+            },
+            [
+                FillRenderData.propertyBufferSpec.binding,
+                {
+                    location: 3,
+                    group: 0,
+                    type: 'texture',
+                    name: 'u_image'
+                }
+            ],
+            (buffer: VertexBuffer) => buffer.attributes[0].name != 'a_outline_color'
+        );
+
+        this.propertyBuffer = painter.context.device.createBuffer({
+            byteLength: FillPatternRenderData.propertyBufferSpec.layout.byteLength,
+            usage: Buffer.UNIFORM
+        });
+        this.drawBuffer = painter.context.device.createBuffer({
+            byteLength: FillPatternRenderData.drawBufferSpec.layout.byteLength,
+            usage: Buffer.UNIFORM
+        });
+    }
+
+    updateBuffers(painter: Painter, layer: FillStyleLayer, bucket: FillBucket, tile: Tile) {
+        const zero = [0, 0, 0, 0];
+        const tileRatio = 1 / pixelsToTileUnits(tile, 1, painter.transform.tileZoom);
+        const numTiles = Math.pow(2, tile.tileID.overscaledZ);
+        const tileSizeAtNearestZoom = tile.tileSize * Math.pow(2, painter.transform.tileZoom) / numTiles;
+        const pixelX = tileSizeAtNearestZoom * (tile.tileID.canonical.x + tile.tileID.wrap * numTiles);
+        const pixelY = tileSizeAtNearestZoom * tile.tileID.canonical.y;
+
+        const globals = {zoom: (painter.transform.zoom as any)};
+        const crossfade = layer.getCrossfadeParameters();
+        const programConfiguration = bucket.programConfigurations.get(layer.id);
+        const crossfadeBinder = programConfiguration.getUniformBinder("fill-pattern") as CrossFadedConstantBinder;
+        const opacityBinder = programConfiguration.getUniformBinder("fill-opacity") as ConstantBinder;
+        const translateBinder = programConfiguration.getUniformBinder("fill-translate") as ConstantBinder;
+
+        this.propertyBuffer.write(FillPatternRenderData.propertyBufferSpec.layout.getData({
+            'u_pattern_from': crossfadeBinder ? crossfadeBinder.patternFrom : zero,
+            'u_pattern_to': crossfadeBinder ? crossfadeBinder.patternTo : zero,
+            'u_fill_translate': translateBinder ? translateBinder.value as [number, number] : [0, 0],
+            'u_texsize': tile.imageAtlasTexture.size,
+            'u_pixel_coord_upper': [pixelX >> 16, pixelY >> 16],
+            'u_pixel_coord_lower': [pixelX & 0xFFFF, pixelY & 0xFFFF],
+            'u_scale': [tileRatio, crossfade.fromScale, crossfade.toScale],
+            'u_fade': crossfade.t,
+            'u_opacity': opacityBinder ? opacityBinder.value as number : 0,
+            'u_pixel_ratio_from': crossfadeBinder ? crossfadeBinder.pixelRatioFrom : 0,
+            'u_pixel_ratio_to': crossfadeBinder ? crossfadeBinder.pixelRatioTo : 0
+        }));
+
+        const crossfadeFactor = crossfadeBinder instanceof CompositeExpressionBinder ?
+            crossfadeBinder.getFactor(globals) : 0;
+        const opacityFactor = opacityBinder instanceof CompositeExpressionBinder ?
+            opacityBinder.getFactor(globals) : 0;
+
+        this.drawBuffer.write(FillPatternRenderData.drawBufferSpec.layout.getData({
+            'u_pattern_from_t': crossfadeFactor,
+            'u_pattern_to_t': crossfadeFactor,
+            'u_opacity_t': opacityFactor,
+            'u_pixel_ratio_from_t': crossfadeFactor,
+            'u_pixel_ratio_to_t': crossfadeFactor
         }));
     }
 }
@@ -127,33 +243,8 @@ export class FillBucket implements Bucket {
     segments2: SegmentVector;
     uploaded: boolean;
 
-    lumaData: {[_: string]: FillRenderData};
+    lumaData: {[_: string]: RenderData<FillStyleLayer>};
 
-
-    static fillPatternPropertyBuffer: BufferSpec = {
-        binding: {
-            type: 'uniform',
-            name: 'FillPatternEvaluatedPropsUBO',
-            group: 0,
-            location: 2,
-            minBindingSize: 128,
-            visibility: 3,
-        },
-        layout: new UniformBufferLayout({
-            'u_pixel_coord_upper': 'vec2<f32>', // 8
-            'u_pixel_coord_lower': 'vec2<f32>', // 16
-            'u_fill_translate': 'vec2<f32>', // 24
-            'u_texsize': 'vec2<f32>', // 32
-            'u_scale': 'vec3<f32>', // 40
-            'u_fade': 'f32', // + 16(std140) = 56
-            'u_opacity_t': 'f32', // 60
-            'u_pixel_ratio_from_t': 'f32', // 64
-            'u_pixel_ratio_to_t': 'f32', // 68
-            'u_pattern_from_t': 'vec4<f32>', // 84
-            'u_pattern_to_t': 'vec4<f32>', // 100
-            
-        })
-    };
     static fillOutlinePropertyBuffer: BufferSpec = {
         binding: {
             type: 'uniform',
@@ -302,16 +393,23 @@ export class FillBucket implements Bucket {
         this.uploaded = true;
     }
     
-    getOrCreateRenderData(painter: Painter, layer: FillStyleLayer, program: Program<any>, isOutline: boolean, image: boolean): FillRenderData {
+    getOrCreateRenderData(painter: Painter, layer: FillStyleLayer, program: Program<any>, isOutline: boolean, image: boolean, onCreated?: (_: RenderData<any>) => void): RenderData<any> {
         const data = this.lumaData[layer.id];
         if (data) {
             return data;
         }
 
-        const renderData = new FillRenderData(painter, layer, this, program);
+        let renderData;
+        if (!isOutline) {
+            renderData = image ? new FillPatternRenderData(painter, layer, this, program) : new FillRenderData(painter, layer, this, program);
+        } else {
+            // TODO
+        }
+
         renderData.vertexArray.setBuffer(0, this.layoutVertexBuffer.getLumaBuffer());
         renderData.vertexArray.setIndexBuffer(isOutline ? this.indexBuffer2.getLumaBuffer() : this.indexBuffer.getLumaBuffer());
-
+        onCreated(renderData);
+        
         this.lumaData[layer.id] = renderData
         return renderData;
     }

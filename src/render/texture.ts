@@ -1,6 +1,8 @@
+import { Data } from 'geojson-vt';
 import type {Context} from '../gl/context';
-import type {RGBAImage, AlphaImage} from '../util/image';
+import {RGBAImage, AlphaImage} from '../util/image';
 import {isImageBitmap} from '../util/util';
+import {Texture as LumaTexture} from '@luma.gl/core';
 
 export type TextureFormat = WebGLRenderingContextBase['RGBA'] | WebGLRenderingContextBase['ALPHA'];
 export type TextureFilter = WebGLRenderingContextBase['LINEAR'] | WebGLRenderingContextBase['LINEAR_MIPMAP_NEAREST'] | WebGLRenderingContextBase['NEAREST'];
@@ -27,6 +29,7 @@ export class Texture {
     filter: TextureFilter;
     wrap: TextureWrap;
     useMipmap: boolean;
+    lumaTexture?: LumaTexture;
 
     constructor(context: Context, image: TextureImage, format: TextureFormat, options?: {
         premultiply?: boolean;
@@ -49,7 +52,7 @@ export class Texture {
         const resize = (!this.size || this.size[0] !== width || this.size[1] !== height) && !position;
         const {context} = this;
         const {gl} = context;
-
+        
         this.useMipmap = Boolean(options && options.useMipmap);
         gl.bindTexture(gl.TEXTURE_2D, this.texture);
 
@@ -82,6 +85,59 @@ export class Texture {
         context.pixelStoreUnpackFlipY.setDefault();
         context.pixelStoreUnpack.setDefault();
         context.pixelStoreUnpackPremultiplyAlpha.setDefault();
+
+        ///////////////////////////////
+        if (!(image instanceof AlphaImage)) {
+            if (!this.lumaTexture || resize) {
+                this.lumaTexture = this.context.device.createTexture({
+                    width: width,
+                    height: height,
+                    dimension: '2d',
+                    mipLevels: 1, // TODO
+                    format: image instanceof AlphaImage ? 'r8unorm' : 'rgba8unorm'
+                });
+            }
+
+            if (resize) {
+                if (image instanceof HTMLImageElement || image instanceof HTMLCanvasElement || image instanceof HTMLVideoElement || image instanceof ImageData || isImageBitmap(image)) {
+                    this.lumaTexture.copyExternalImage({
+                        image: image,
+                        premultipliedAlpha: this.format === gl.RGBA && (!options || options.premultiply !== false),
+                        flipY: false
+                    });
+                } else {
+                    this.lumaTexture.copyImageData({
+                        data: (image as DataTextureImage).data,
+                        bytesPerRow: width,// https://github.com/visgl/luma.gl/blob/6a27948ef07b5798f55d964aa6353d2cc324ad94/modules/core/src/adapter/resources/texture.ts#L393
+                        unpackAlignment: 1
+                    });
+                }
+
+            } else {
+                const {x, y} = position || {x: 0, y: 0};
+                if (image instanceof HTMLImageElement || image instanceof HTMLCanvasElement || image instanceof HTMLVideoElement || image instanceof ImageData || isImageBitmap(image)) {
+                    this.lumaTexture.copyExternalImage({
+                        image: image,
+                        x: x,
+                        y: y,
+                        premultipliedAlpha: this.format === gl.RGBA && (!options || options.premultiply !== false),
+                        flipY: false
+                    });
+                } else {
+                    this.lumaTexture.copyImageData({
+                        data: (image as DataTextureImage).data,
+                        bytesPerRow: width,// https://github.com/visgl/luma.gl/blob/6a27948ef07b5798f55d964aa6353d2cc324ad94/modules/core/src/adapter/resources/texture.ts#L393
+                        unpackAlignment: 1,
+                        x: x,
+                        y: y
+                    });
+                }
+            }
+
+            if (this.useMipmap && this.isSizePowerOfTwo()) {
+                this.lumaTexture.generateMipmapsWebGL();
+            }
+        }
     }
 
     bind(filter: TextureFilter, wrap: TextureWrap, minFilter?: TextureFilter | null) {

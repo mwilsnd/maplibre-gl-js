@@ -1,7 +1,7 @@
 in vec3 v_data;
 in float v_visibility;
 
-layout (std140) uniform CircleEvaluatedPropsUBO {
+layout (std140) uniform CircleUniforms {
     highp vec4 u_color;
     highp vec4 u_stroke_color;
     mediump float u_radius;
