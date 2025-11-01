@@ -10,7 +10,11 @@ import {
     DepthStencilParameters,
     RenderPipelineParameters,
     BindingDeclaration,
-    RenderPass
+    RenderPass,
+    VertexFormat,
+    AttributeShaderType,
+    BufferAttributeLayout,
+    AttributeDeclaration
 } from '@luma.gl/core';
 import {Program} from './program';
 import {ProgramConfiguration} from '../data/program_configuration';
@@ -60,20 +64,37 @@ export const blendOpaqueParameters: ColorParameters = {
 
 type RenderDataAttributeBindingPredicate = (buffer: VertexBuffer) => boolean;
 
+export type LumaAttribute = {
+    name: string,
+    format?: VertexFormat,
+    type: AttributeShaderType,
+    byteStride: number,
+    location: number,
+    attributes?: BufferAttributeLayout[]
+};
+
 export class RenderData<LayerStyle extends StyleLayer> {
     pipeline: RenderPipeline;
     vertexArray: VertexArray;
 
-    constructor(painter: Painter, layer: LayerStyle, programConfiguration: ProgramConfiguration, program: Program<any>,
-        pipelineParams: RenderPipelineParameters, bufferBindings: BindingDeclaration[], attributeBindingPredicate?: RenderDataAttributeBindingPredicate)
+    constructor(
+        painter: Painter,
+        layer: LayerStyle,
+        programConfiguration: ProgramConfiguration,
+        program: Program<any>,
+        pipelineParams: RenderPipelineParameters,
+        bufferBindings: BindingDeclaration[],
+        attributeBindingPredicate?: RenderDataAttributeBindingPredicate,
+        bufferLayout_?: BufferLayout[],
+        shaderAttributes?: AttributeDeclaration[])
     {
-        const bufferLayout: BufferLayout[] = [
+        const bufferLayout: BufferLayout[] = bufferLayout_ ? bufferLayout_ : [
             {name: 'a_pos', format: 'sint16x2', byteStride: 4},
         ];
 
         const shaderLayout: ShaderLayout = {
-            attributes: [
-                {location: 0, name: 'a_pos', type: 'vec2<f16>'},
+            attributes: shaderAttributes ? shaderAttributes : [
+                {location: 0, name: 'a_pos', type: 'vec2<f32>'},
             ],
             bindings: [
                 painter.projectionParameterBindingDecl,
@@ -81,6 +102,8 @@ export class RenderData<LayerStyle extends StyleLayer> {
                 ...bufferBindings
             ],
         };
+
+        let dataDrivenAttributeBindingIndex = shaderLayout.attributes.length;
         programConfiguration.updateLumaPipelineLayouts(1, bufferLayout, shaderLayout);
 
         this.pipeline = painter.context.device.createRenderPipeline({
@@ -99,7 +122,6 @@ export class RenderData<LayerStyle extends StyleLayer> {
         });
 
         const binderAttrs = programConfiguration.getAttributeMetadata();
-        let n = 0;
         for (const buffer of programConfiguration.getPaintVertexBuffers()) {
             if (!binderAttrs[buffer.attributes[0].name]) {
                 continue;
@@ -109,7 +131,8 @@ export class RenderData<LayerStyle extends StyleLayer> {
                 continue;
             }
 
-            this.vertexArray.setBuffer(++n, buffer.getLumaBuffer());
+            this.vertexArray.setBuffer(dataDrivenAttributeBindingIndex, buffer.getLumaBuffer());
+            dataDrivenAttributeBindingIndex++;
         }
     }
 

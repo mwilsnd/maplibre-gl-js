@@ -24,11 +24,12 @@ layout (std140) uniform ProjectionParameterUBO {
 };
 
 layout (std140) uniform GlobeProjectionUBO {
-    vec2 u_translate;
+    highp vec2 u_translate;
     highp float u_globe_extrude_scale;
     highp float u_device_pixel_ratio;
     highp float u_camera_to_center_distance;
     highp float u_aspect_ratio;
+    highp vec2 u_units_to_pixels;
 };
 
 // Unpack a pair of values that have been packed into a single float.

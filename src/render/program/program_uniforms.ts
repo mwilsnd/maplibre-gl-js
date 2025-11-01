@@ -53,5 +53,6 @@ export const programUniforms = {
     sky: skyUniforms,
     luma_circle: emptyUniforms,
     luma_fill: emptyUniforms,
-    luma_fillPattern: emptyUniforms
+    luma_fillPattern: emptyUniforms,
+    luma_line: emptyUniforms
 };

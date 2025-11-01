@@ -11,11 +11,123 @@ import {
 import type {Painter, RenderOptions} from './painter';
 import type {SourceCache} from '../source/source_cache';
 import type {LineStyleLayer} from '../style/style_layer/line_style_layer';
-import type {LineBucket} from '../data/bucket/line_bucket';
+import type {LineBucket, LineRenderData} from '../data/bucket/line_bucket';
 import type {OverscaledTileID} from '../source/tile_id';
 import {clamp, nextPowerOfTwo} from '../util/util';
 import {renderColorRamp} from '../util/color_ramp';
 import {EXTENT} from '../data/extent';
+
+import type {RenderPass as LumaPass} from '@luma.gl/core';
+
+export function drawLineLuma(painter: Painter, sourceCache: SourceCache, layer: LineStyleLayer, coords: Array<OverscaledTileID>, renderOptions: RenderOptions, renderPass: LumaPass) {
+    if (painter.renderPass !== 'translucent') return;
+
+    //const {isRenderingToTexture} = renderOptions;
+
+    const opacity = layer.paint.get('line-opacity');
+    const width = layer.paint.get('line-width');
+    if (opacity.constantOr(1) === 0 || width.constantOr(1) === 0) return;
+
+    //const depthMode = painter.getDepthModeForSublayer(0, DepthMode.ReadOnly);
+    //const colorMode = painter.colorModeForRenderPass();
+
+    const dasharray = layer.paint.get('line-dasharray');
+    const patternProperty = layer.paint.get('line-pattern');
+    const image = patternProperty.constantOr(1 as any);
+
+    const gradient = layer.paint.get('line-gradient');
+
+    if (image || dasharray || gradient) {
+        return; // TODO
+    }
+
+    const programId =
+        image ? 'luma_linePattern' :
+            dasharray ? 'luma_lineSDF' :
+                gradient ? 'luma_lineGradient' : 'luma_line';
+
+    for (const coord of coords) {
+        const tile = sourceCache.getTile(coord);
+
+        if (image && !tile.patternsLoaded()) continue;
+
+        const bucket: LineBucket = (tile.getBucket(layer) as any);
+        if (!bucket) continue;
+
+        const programConfiguration = bucket.programConfigurations.get(layer.id);
+        const program = painter.useProgram(programId, programConfiguration, null, null, true);
+        const terrainData = painter.style.map.terrain &&  painter.style.map.terrain.getTerrainData(coord);
+
+        const constantPattern = patternProperty.constantOr(null);
+        if (constantPattern && tile.imageAtlas) {
+            const atlas = tile.imageAtlas;
+            const posTo = atlas.patternPositions[constantPattern.to.toString()];
+            const posFrom = atlas.patternPositions[constantPattern.from.toString()];
+            if (posTo && posFrom) programConfiguration.setConstantPatternPositions(posTo, posFrom);
+        }
+
+        // const uniformValues = image ? linePatternUniformValues(painter, tile, layer, pixelRatio, crossfade) :
+        //     dasharray ? lineSDFUniformValues(painter, tile, layer, pixelRatio, dasharray, crossfade) :
+        //         gradient ? lineGradientUniformValues(painter, tile, layer, pixelRatio, bucket.lineClipsArray.length) :
+        //             lineUniformValues(painter, tile, layer, pixelRatio);
+
+        if (image) {
+            // context.activeTexture.set(gl.TEXTURE0);
+            // tile.imageAtlasTexture.bind(gl.LINEAR, gl.CLAMP_TO_EDGE);
+            // programConfiguration.updatePaintBuffers(context, crossfade);
+        } else if (dasharray && (painter.lineAtlas.dirty)) {
+            // context.activeTexture.set(gl.TEXTURE0);
+            // painter.lineAtlas.bind(context);
+        } else if (gradient) {
+            // const layerGradient = bucket.gradients[layer.id];
+            // let gradientTexture = layerGradient.texture;
+            // if (layer.gradientVersion !== layerGradient.version) {
+            //     let textureResolution = 256;
+            //     if (layer.stepInterpolant) {
+            //         const sourceMaxZoom = sourceCache.getSource().maxzoom;
+            //         const potentialOverzoom = coord.canonical.z === sourceMaxZoom ?
+            //             Math.ceil(1 << (painter.transform.maxZoom - coord.canonical.z)) : 1;
+            //         const lineLength = bucket.maxLineLength / EXTENT;
+            //         // Logical pixel tile size is 512px, and 1024px right before current zoom + 1
+            //         const maxTilePixelSize = 1024;
+            //         // Maximum possible texture coverage heuristic, bound by hardware max texture size
+            //         const maxTextureCoverage = lineLength * maxTilePixelSize * potentialOverzoom;
+            //         textureResolution = clamp(nextPowerOfTwo(maxTextureCoverage), 256, context.maxTextureSize);
+            //     }
+            //     layerGradient.gradient = renderColorRamp({
+            //         expression: layer.gradientExpression(),
+            //         evaluationKey: 'lineProgress',
+            //         resolution: textureResolution,
+            //         image: layerGradient.gradient || undefined,
+            //         clips: bucket.lineClipsArray
+            //     });
+            //     if (layerGradient.texture) {
+            //         layerGradient.texture.update(layerGradient.gradient);
+            //     } else {
+            //         layerGradient.texture = new Texture(context, layerGradient.gradient, gl.RGBA);
+            //     }
+            //     layerGradient.version = layer.gradientVersion;
+            //     gradientTexture = layerGradient.texture;
+            // }
+            // context.activeTexture.set(gl.TEXTURE0);
+            // gradientTexture.bind(layer.stepInterpolant ? gl.NEAREST : gl.LINEAR, gl.CLAMP_TO_EDGE);
+        }
+
+        // TODO
+        const stencil = painter.stencilModeForClipping(coord);
+
+        const projectionParamterBuffer = painter.getProjectionParameterBuffer(coord, renderOptions);
+        const globeBuffer = painter.getGlobeBuffer(tile, 0, [0, 0], 'map');
+        const renderData = bucket.getOrCreateRenderData(painter, layer, program, (data: LineRenderData) => data.pipeline.setBindings({
+            'ProjectionParameterUBO': projectionParamterBuffer,
+            'GlobeProjectionUBO': globeBuffer,
+            'LineUniforms': data.propertyBuffer
+        })) as LineRenderData;
+    
+        renderData.updateBuffers(painter, layer, bucket, tile);
+        renderData.drawSegments(bucket.segments, renderPass);
+    }
+}
 
 export function drawLine(painter: Painter, sourceCache: SourceCache, layer: LineStyleLayer, coords: Array<OverscaledTileID>, renderOptions: RenderOptions) {
     if (painter.renderPass !== 'translucent') return;

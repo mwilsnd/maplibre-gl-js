@@ -35,6 +35,19 @@ import type {VectorTileLayer} from '@mapbox/vector-tile';
 import {subdivideVertexLine} from '../../render/subdivision';
 import type {SubdivisionGranularitySetting} from '../../render/subdivision_granularity_settings';
 
+import {
+    BufferSpec,
+    RenderData,
+    blendAdditiveParameters,
+    transparentDepthParameters
+} from '../../render/render_data';
+import { UniformBufferLayout, Buffer } from '@luma.gl/core';
+import { Painter } from '../../render/painter';
+import { Program } from '../../render/program';
+import { pixelsToTileUnits } from '../../source/pixels_to_tile_units';
+import { Tile } from '../../source/tile';
+import { translatePosition } from '../../util/util';
+
 // NOTE ON EXTRUDE SCALE:
 // scale the extrusion vector so that the normal length is this value.
 // contains the "texture" normals (-1..1). this is distinct from the extrude
@@ -82,6 +95,101 @@ type GradientTexture = {
     version?: number;
 };
 
+export class LineRenderData extends RenderData<LineStyleLayer> {
+    propertyBuffer: Buffer;
+
+    static propertyBufferSpec: BufferSpec = {
+        binding: {
+            type: 'uniform',
+            name: 'LineUniforms',
+            group: 0,
+            location: 2,
+            visibility: 3,
+        },
+        layout: new UniformBufferLayout({
+            'u_color': 'vec4<f32>',
+            'u_translation': 'vec2<f32>',
+            'u_ratio': 'f32',
+            'u_blur': 'f32',
+            'u_opacity': 'f32',
+            'u_gapwidth': 'f32',
+            'u_offset': 'f32',
+            'u_width': 'f32',
+            'u_color_t': 'f32',
+            'u_blur_t': 'f32',
+            'u_opacity_t': 'f32',
+            'u_gapwidth_t': 'f32',
+            'u_offset_t': 'f32',
+            'u_width_t': 'f32'
+        })
+    };
+
+    constructor(painter: Painter, layer: LineStyleLayer, bucket: LineBucket, program: Program<any>) {
+        super(painter, layer, bucket.programConfigurations.get(layer.id), program,
+            {
+                cullMode: 'none',
+                ...blendAdditiveParameters,
+                ...transparentDepthParameters
+            },
+            [LineRenderData.propertyBufferSpec.binding],
+            (buffer: VertexBuffer) => buffer.attributes[0].name != 'a_floorwidth',
+            [
+                {
+                    name: 'layout',
+                    byteStride: 8,
+                    attributes: [
+                        {attribute: 'a_pos_normal', byteOffset: 0, format: 'sint16x2'},
+                        {attribute: 'a_data', byteOffset: 4, format: 'sint8x4'},
+                    ]
+                }
+            ],
+            [
+                {
+                    name: 'a_pos_normal',
+                    type: 'vec2<f32>',
+                    location: 0
+                },
+                {
+                    name: 'a_data',
+                    type: 'vec4<f32>',
+                    location: 1
+                },
+            ],
+        );
+
+        this.propertyBuffer = painter.context.device.createBuffer({
+            byteLength: LineRenderData.propertyBufferSpec.layout.byteLength,
+            usage: Buffer.UNIFORM
+        });
+    }
+
+    updateBuffers(painter: Painter, layer: LineStyleLayer, bucket: LineBucket, tile: Tile) {
+        const globals = {zoom: (painter.transform.zoom as any)};
+        const programConfiguration = bucket.programConfigurations.get(layer.id);
+        this.propertyBuffer.write(LineRenderData.propertyBufferSpec.layout.getData({
+            'u_color': programConfiguration.getBinderValueOr('line-color', 'value', [0, 0, 0, 0]),
+            'u_color_t': programConfiguration.getBinderFactor('line-color', globals),
+            'u_translation': translatePosition(
+                painter.transform,
+                tile,
+                layer.paint.get('line-translate'),
+                layer.paint.get('line-translate-anchor')
+            ),
+            'u_ratio':  painter.transform.getPixelScale() / pixelsToTileUnits(tile, 1, painter.transform.zoom),
+            'u_blur': programConfiguration.getBinderValueOr('line-blur', 'value', 0),
+            'u_opacity': programConfiguration.getBinderValueOr('line-opacity', 'value', 0),
+            'u_gapwidth': programConfiguration.getBinderValueOr('line-gap-width', 'value', 0),
+            'u_offset': programConfiguration.getBinderValueOr('line-offset', 'value', 0),
+            'u_width': programConfiguration.getBinderValueOr('line-width', 'value', 0),
+            'u_blur_t': programConfiguration.getBinderFactor('line-blur', globals),
+            'u_opacity_t': programConfiguration.getBinderFactor('line-opacity', globals),
+            'u_gapwidth_t': programConfiguration.getBinderFactor('line-gap-width', globals),
+            'u_offset_t': programConfiguration.getBinderFactor('line-offset', globals),
+            'u_width_t': programConfiguration.getBinderFactor('line-width', globals),
+        }));
+    }
+}
+
 /**
  * @internal
  * Line bucket class
@@ -121,6 +229,8 @@ export class LineBucket implements Bucket {
     segments: SegmentVector;
     uploaded: boolean;
 
+    lumaData: {[_: string]: RenderData<LineStyleLayer>};
+
     constructor(options: BucketParameters<LineStyleLayer>) {
         this.zoom = options.zoom;
         this.globalState = options.globalState;
@@ -142,6 +252,7 @@ export class LineBucket implements Bucket {
         this.programConfigurations = new ProgramConfigurationSet(options.layers, options.zoom);
         this.segments = new SegmentVector();
         this.maxLineLength = 0;
+        this.lumaData = {};
 
         this.stateDependentLayerIds = this.layers.filter((l) => l.isStateDependent()).map((l) => l.id);
     }
@@ -231,6 +342,22 @@ export class LineBucket implements Bucket {
         }
         this.programConfigurations.upload(context);
         this.uploaded = true;
+    }
+    
+    getOrCreateRenderData(painter: Painter, layer: LineStyleLayer, program: Program<any>, onCreated?: (_: RenderData<any>) => void): RenderData<any> {
+        const data = this.lumaData[layer.id];
+        if (data) {
+            return data;
+        }
+
+        const renderData = new LineRenderData(painter, layer, this, program);
+        renderData.vertexArray.setBuffer(0, this.layoutVertexBuffer.lumaBuffer);
+        renderData.vertexArray.setBuffer(1, this.layoutVertexBuffer.lumaBuffer);
+        renderData.vertexArray.setIndexBuffer(this.indexBuffer.getLumaBuffer());
+        onCreated(renderData);
+        
+        this.lumaData[layer.id] = renderData
+        return renderData;
     }
 
     destroy() {

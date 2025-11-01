@@ -60,7 +60,6 @@ export class CircleRenderData extends RenderData<CircleStyleLayer> {
             name: 'CircleUniforms',
             group: 0,
             location: 2,
-            minBindingSize: 64,
             visibility: 3,
         },
         layout: new UniformBufferLayout({
@@ -83,7 +82,6 @@ export class CircleRenderData extends RenderData<CircleStyleLayer> {
             name: 'DrawUBO',
             group: 0,
             location: 3,
-            minBindingSize: 40,
             visibility: 3,
         },
         layout: new UniformBufferLayout({

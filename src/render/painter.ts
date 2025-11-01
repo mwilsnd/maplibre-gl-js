@@ -21,7 +21,7 @@ import {Color} from '@maplibre/maplibre-gl-style-spec';
 import {drawSymbols} from './draw_symbol';
 import {drawCircles, drawCirclesLuma} from './draw_circle';
 import {drawHeatmap} from './draw_heatmap';
-import {drawLine} from './draw_line';
+import {drawLine, drawLineLuma} from './draw_line';
 import {drawFill, drawFillLuma} from './draw_fill';
 import {drawFillExtrusion} from './draw_fill_extrusion';
 import {drawHillshade} from './draw_hillshade';
@@ -261,15 +261,7 @@ export class Painter {
             name: 'ProjectionParameterUBO',
             group: 0,
             location: 0,
-            minBindingSize: 164,
-            visibility: 3,
-            uniforms: [
-                {byteStride: 0, byteOffset: 0, format: 'mat4x4<f32>', name: 'u_projection_matrix', arrayLength: 1},
-                {byteStride: 0, byteOffset: 64, format: 'mat4x4<f32>', name: 'u_projection_fallback_matrix', arrayLength: 1},
-                {byteStride: 0, byteOffset: 128, format: 'vec4<f32>', name: 'u_projection_tile_mercator_coords', arrayLength: 1},
-                {byteStride: 0, byteOffset: 144, format: 'vec4<f32>', name: 'u_projection_clipping_plane', arrayLength: 1},
-                {byteStride: 0, byteOffset: 160, format: 'f32', name: 'u_projection_transition', arrayLength: 1},
-            ]
+            visibility: 3
         };
 
         this.globeBufferLayout = new UniformBufferLayout({
@@ -278,21 +270,14 @@ export class Painter {
             'u_device_pixel_ratio': 'f32',
             'u_camera_to_center_distance': 'f32',
             'u_aspect_ratio': 'f32',
+            'u_units_to_pixels': 'vec2<f32>'
         });
         this.globeBufferBindingDecl = {
             type: 'uniform',
             name: 'GlobeProjectionUBO',
             group: 0,
             location: 1,
-            minBindingSize: 20,
-            visibility: 3,
-            uniforms: [
-                {byteStride: 0, byteOffset: 0, format: 'vec2<f32>', name: 'u_translate', arrayLength: 1},
-                {byteStride: 0, byteOffset: 8, format: 'f32', name: 'u_globe_extrude_scale', arrayLength: 1},
-                {byteStride: 0, byteOffset: 12, format: 'f32', name: 'u_device_pixel_ratio', arrayLength: 1},
-                {byteStride: 0, byteOffset: 16, format: 'f32', name: 'u_camera_to_center_distance', arrayLength: 1},
-                {byteStride: 0, byteOffset: 20, format: 'f32', name: 'u_aspect_ratio', arrayLength: 1},
-            ]
+            visibility: 3
         };
     }
 
@@ -342,7 +327,11 @@ export class Painter {
             'u_globe_extrude_scale': globeExtrudeScale,
             'u_device_pixel_ratio': this.pixelRatio,
             'u_camera_to_center_distance': this.transform.cameraToCenterDistance,
-            'u_aspect_ratio': this.transform.width / this.transform.height
+            'u_aspect_ratio': this.transform.width / this.transform.height,
+            'u_units_to_pixels': [
+                1 / this.transform.pixelsToGLUnits[0],
+                1 / this.transform.pixelsToGLUnits[1]
+            ]
         });
 
         if (!this.globeBuffer) {
@@ -868,8 +857,10 @@ export class Painter {
                 drawCircles(painter, sourceCache, layer, coords, renderOptions);
         } else if (!pass && isHeatmapStyleLayer(layer)) {
             drawHeatmap(painter, sourceCache, layer, coords, renderOptions);
-        } else if (!pass && isLineStyleLayer(layer)) {
-            drawLine(painter, sourceCache, layer, coords, renderOptions);
+        } else if (isLineStyleLayer(layer)) {
+            pass ?
+                drawLineLuma(painter, sourceCache, layer, coords, renderOptions, pass) :
+                drawLine(painter, sourceCache, layer, coords, renderOptions);
         } else if (isFillStyleLayer(layer)) {
             pass ?
                 drawFillLuma(painter, sourceCache, layer, coords, renderOptions, pass) :

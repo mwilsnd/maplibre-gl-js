@@ -2,7 +2,7 @@ import { Data } from 'geojson-vt';
 import type {Context} from '../gl/context';
 import {RGBAImage, AlphaImage} from '../util/image';
 import {isImageBitmap} from '../util/util';
-import {Texture as LumaTexture} from '@luma.gl/core';
+import {Texture as LumaTexture, SamplerProps, Sampler} from '@luma.gl/core';
 
 export type TextureFormat = WebGLRenderingContextBase['RGBA'] | WebGLRenderingContextBase['ALPHA'];
 export type TextureFilter = WebGLRenderingContextBase['LINEAR'] | WebGLRenderingContextBase['LINEAR_MIPMAP_NEAREST'] | WebGLRenderingContextBase['NEAREST'];
@@ -30,6 +30,7 @@ export class Texture {
     wrap: TextureWrap;
     useMipmap: boolean;
     lumaTexture?: LumaTexture;
+    // TODO: Samplers, see bind()
 
     constructor(context: Context, image: TextureImage, format: TextureFormat, options?: {
         premultiply?: boolean;
@@ -94,7 +95,8 @@ export class Texture {
                     height: height,
                     dimension: '2d',
                     mipLevels: 1, // TODO
-                    format: image instanceof AlphaImage ? 'r8unorm' : 'rgba8unorm'
+                    format: image instanceof AlphaImage ? 'r8unorm' : 'rgba8unorm',
+                    sampler: {addressModeU: 'clamp-to-edge', addressModeV: 'clamp-to-edge', minFilter: 'linear', magFilter: 'linear'}
                 });
             }
 
@@ -106,11 +108,7 @@ export class Texture {
                         flipY: false
                     });
                 } else {
-                    this.lumaTexture.copyImageData({
-                        data: (image as DataTextureImage).data,
-                        bytesPerRow: width,// https://github.com/visgl/luma.gl/blob/6a27948ef07b5798f55d964aa6353d2cc324ad94/modules/core/src/adapter/resources/texture.ts#L393
-                        unpackAlignment: 1
-                    });
+                    this.lumaTexture.copyImageData({data: (image as DataTextureImage).data});
                 }
 
             } else {
@@ -126,8 +124,6 @@ export class Texture {
                 } else {
                     this.lumaTexture.copyImageData({
                         data: (image as DataTextureImage).data,
-                        bytesPerRow: width,// https://github.com/visgl/luma.gl/blob/6a27948ef07b5798f55d964aa6353d2cc324ad94/modules/core/src/adapter/resources/texture.ts#L393
-                        unpackAlignment: 1,
                         x: x,
                         y: y
                     });

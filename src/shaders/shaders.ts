@@ -76,6 +76,8 @@ import lumaFillFrag from './luma.fill.fragment.glsl.g';
 import lumaFillVert from './luma.fill.vertex.glsl.g';
 import lumaFillPatternFrag from './luma.fill_pattern.fragment.glsl.g';
 import lumaFillPatternVert from './luma.fill_pattern.vertex.glsl.g';
+import lumaLineFrag from './luma.line.fragment.glsl.g';
+import lumaLineVert from './luma.line.vertex.glsl.g';
 import lumaPreludeFrag from './luma._prelude.fragment.glsl.g';
 import lumaPreludeVert from './luma._prelude.vertex.glsl.g';
 import lumaProjectionMercatorVert from './luma._projection_mercator.vertex.glsl.g';
@@ -131,7 +133,8 @@ export const shaders = {
     luma_projectionGlobe: prepare2('', lumaProjectionGlobeVert),
     luma_circle: prepare2(lumaCircleFrag, lumaCircleVert),
     luma_fill: prepare2(lumaFillFrag, lumaFillVert),
-    luma_fillPattern: prepare2(lumaFillPatternFrag, lumaFillPatternVert)
+    luma_fillPattern: prepare2(lumaFillPatternFrag, lumaFillPatternVert),
+    luma_line: prepare2(lumaLineFrag, lumaLineVert)
 };
 
 /** Expand #pragmas to #ifdefs, extract attributes and uniforms */

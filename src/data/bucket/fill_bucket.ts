@@ -56,7 +56,6 @@ export class FillRenderData extends RenderData<FillStyleLayer> {
             name: 'FillUniforms',
             group: 0,
             location: 2,
-            minBindingSize: 32,
             visibility: 3,
         },
         layout: new UniformBufferLayout({
@@ -108,7 +107,6 @@ export class FillPatternRenderData extends RenderData<FillStyleLayer> {
             name: 'FillPatternUniforms',
             group: 0,
             location: 2,
-            minBindingSize: 52,
             visibility: 3,
         },
         layout: new UniformBufferLayout({
@@ -132,7 +130,6 @@ export class FillPatternRenderData extends RenderData<FillStyleLayer> {
             name: 'DrawUJniforms',
             group: 0,
             location: 2,
-            minBindingSize: 52,
             visibility: 3,
         },
         layout: new UniformBufferLayout({
@@ -251,7 +248,6 @@ export class FillBucket implements Bucket {
             name: 'FillOutlineEvaluatedPropsUBO',
             group: 0,
             location: 2,
-            minBindingSize: 48,
             visibility: 3,
         },
         layout: new UniformBufferLayout({
@@ -267,7 +263,6 @@ export class FillBucket implements Bucket {
             name: 'FillOutlinePatternEvaluatedPropsUBO',
             group: 0,
             location: 2,
-            minBindingSize: 128,
             visibility: 3,
         },
         layout: new UniformBufferLayout({
@@ -281,7 +276,7 @@ export class FillBucket implements Bucket {
             'u_texsize': 'vec2<f32>', // 88
             'u_pixel_ratio_from': 'f32', // 92
             'u_pixel_ratio_to': 'f32', // 96
-            'u_fade': 'f32', // 100filterProperties
+            'u_fade': 'f32', // 100
             'u_opacity_t': 'f32', // 104
         })
     };
