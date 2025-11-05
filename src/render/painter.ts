@@ -281,7 +281,7 @@ export class Painter {
         };
     }
 
-    getProjectionParameterBuffer(coord: OverscaledTileID, renderOptions: RenderOptions): Buffer {
+    getProjectionParameterBuffer(coord: OverscaledTileID, renderOptions: RenderOptions, subLayerIndex: number): Buffer {
         let projectionData;
         if (renderOptions.isRenderingLuma) {
             projectionData = this.transform.getProjectionData({
@@ -291,7 +291,7 @@ export class Painter {
                 currentLayer: this.currentLayer,
                 numSubLayers: this.numSublayers,
                 depthEpsilon: this.depthEpsilon,
-                currentSubLayerIndex: 0 // TODO
+                currentSubLayerIndex: subLayerIndex
             });
         } else {
             projectionData = this.transform.getProjectionData({
@@ -340,7 +340,7 @@ export class Painter {
                 usage: Buffer.UNIFORM
             });
         } else {
-            this.globeBuffer.write(bufferData)
+            this.globeBuffer.write(bufferData);
         }
 
         return this.globeBuffer;
@@ -384,7 +384,7 @@ export class Painter {
             this.quadTriangleIndexBuffer, this.viewportSegments);
     }
 
-    _renderTileClippingMasks(layer: StyleLayer, tileIDs: Array<OverscaledTileID>, renderToTexture: boolean) {
+    _renderTileClippingMasks(layer: StyleLayer, tileIDs: Array<OverscaledTileID>, renderToTexture: boolean, pass?: LumaPass) {
         if (this.currentStencilSource === layer.source || !layer.isTileClipped() || !tileIDs || !tileIDs.length) {
             return;
         }
@@ -411,20 +411,20 @@ export class Painter {
         // However, we use a simpler approach because we don't care about overdraw here.
 
         // First pass - draw tiles with borders and with GL_ALWAYS
-        this._renderTileMasks(stencilRefs, tileIDs, renderToTexture, true);
+        this._renderTileMasks(stencilRefs, tileIDs, renderToTexture, true, pass);
         // Second pass - draw borderless tiles with GL_ALWAYS
-        this._renderTileMasks(stencilRefs, tileIDs, renderToTexture, false);
+        this._renderTileMasks(stencilRefs, tileIDs, renderToTexture, false, pass);
 
         this._tileClippingMaskIDs = stencilRefs;
     }
 
-    _renderTileMasks(tileStencilRefs: {[_: string]: number}, tileIDs: Array<OverscaledTileID>, renderToTexture: boolean, useBorders: boolean) {
+    _renderTileMasks(tileStencilRefs: {[_: string]: number}, tileIDs: Array<OverscaledTileID>, renderToTexture: boolean, useBorders: boolean, pass?: LumaPass) {
         const context = this.context;
         const gl = context.gl;
         const projection = this.style.projection;
         const transform = this.transform;
 
-        const program = this.useProgram('clippingMask');
+        const program = this.useProgram('clippingMask', null, null, null, pass && true);
 
         // tiles are usually supplied in ascending order of z, then y, then x
         for (const tileID of tileIDs) {
@@ -435,12 +435,16 @@ export class Painter {
 
             const projectionData = transform.getProjectionData({overscaledTileID: tileID, applyGlobeMatrix: !renderToTexture, applyTerrainMatrix: true});
 
-            program.draw(context, gl.TRIANGLES, DepthMode.disabled,
-                // Tests will always pass, and ref value will be written to stencil buffer.
-                new StencilMode({func: gl.ALWAYS, mask: 0}, stencilRef, 0xFF, gl.KEEP, gl.KEEP, gl.REPLACE),
-                ColorMode.disabled, renderToTexture ? CullFaceMode.disabled : CullFaceMode.backCCW, null,
-                terrainData, projectionData, '$clipping', mesh.vertexBuffer,
-                mesh.indexBuffer, mesh.segments);
+            if (pass) {
+
+            } else {
+                program.draw(context, gl.TRIANGLES, DepthMode.disabled,
+                    // Tests will always pass, and ref value will be written to stencil buffer.
+                    new StencilMode({func: gl.ALWAYS, mask: 0}, stencilRef, 0xFF, gl.KEEP, gl.KEEP, gl.REPLACE),
+                    ColorMode.disabled, renderToTexture ? CullFaceMode.disabled : CullFaceMode.backCCW, null,
+                    terrainData, projectionData, '$clipping', mesh.vertexBuffer,
+                    mesh.indexBuffer, mesh.segments);
+            }
         }
     }
 
@@ -765,7 +769,7 @@ export class Painter {
                     const sourceCache = sourceCaches[layer.source];
                     const coords = coordsAscending[layer.source];
 
-                    this._renderTileClippingMasks(layer, coords, false);
+                    this._renderTileClippingMasks(layer, coords, false, renderPass);
                     this.renderLayer(this, sourceCache, layer, coords, renderOptions, renderPass);
                 }
             }
@@ -780,14 +784,14 @@ export class Painter {
                 const layer = this.style._layers[layerIds[this.currentLayer]];
                 const sourceCache = sourceCaches[layer.source];
 
-                if (this.renderToTexture && this.renderToTexture.renderLayer(layer, renderOptions)) continue;
+                //if (this.renderToTexture && this.renderToTexture.renderLayer(layer, renderOptions)) continue; TODO
 
                 if (!this.opaquePassEnabledForLayer() && !globeDepthRendered) {
                     globeDepthRendered = true;
                     // Render the globe sphere into the depth buffer - but only if globe is enabled and terrain is disabled.
                     // There should be no need for explicitly writing tile depths when terrain is enabled.
                     if (renderOptions.isRenderingGlobe && !this.style.map.terrain) {
-                        this._renderTilesDepthBuffer();
+                        //this._renderTilesDepthBuffer(); TODO
                     }
                 }
 
@@ -796,10 +800,9 @@ export class Painter {
                 // separate clipping masks
                 const coords = (layer.type === 'symbol' ? coordsDescendingSymbol : coordsDescending)[layer.source];
 
-                this._renderTileClippingMasks(layer, coordsAscending[layer.source], !!this.renderToTexture);
+                this._renderTileClippingMasks(layer, coordsAscending[layer.source], !!this.renderToTexture, renderPass);
                 this.renderLayer(this, sourceCache, layer, coords, renderOptions, renderPass);
             }
-
 
             renderPass.end();
             this.context.device.submit();

@@ -37,14 +37,14 @@ import {fillLargeMeshArrays} from '../../render/fill_large_mesh_arrays';
 import {Painter} from '../../render/painter';
 import {Program} from '../../render/program';
 import {Buffer, UniformBufferLayout} from '@luma.gl/core';
-import {Color} from '@maplibre/maplibre-gl-style-spec';
 
 import {
     BufferSpec,
     RenderData,
     blendAdditiveParameters,
     defaultParameters,
-    transparentDepthParameters
+    transparentDepthParameters,
+    opaqueDepthParameters
 } from '../../render/render_data';
 
 export class FillRenderData extends RenderData<FillStyleLayer> {
@@ -67,12 +67,12 @@ export class FillRenderData extends RenderData<FillStyleLayer> {
         })
     };
 
-    constructor(painter: Painter, layer: FillStyleLayer, bucket: FillBucket, program: Program<any>) {
+    constructor(painter: Painter, layer: FillStyleLayer, bucket: FillBucket, program: Program<any>, writeDepth: boolean) {
         super(painter, layer, bucket.programConfigurations.get(layer.id), program,
             {
                 ...defaultParameters,
                 ...blendAdditiveParameters,
-                ...transparentDepthParameters
+                ...writeDepth ? opaqueDepthParameters : transparentDepthParameters
             },
             [FillRenderData.propertyBufferSpec.binding],
             (buffer: VertexBuffer) => buffer.attributes[0].name != 'a_outline_color'
@@ -141,12 +141,12 @@ export class FillPatternRenderData extends RenderData<FillStyleLayer> {
         })
     };
 
-    constructor(painter: Painter, layer: FillStyleLayer, bucket: FillBucket, program: Program<any>) {
+    constructor(painter: Painter, layer: FillStyleLayer, bucket: FillBucket, program: Program<any>, writeDepth: boolean) {
         super(painter, layer, bucket.programConfigurations.get(layer.id), program,
             {
                 ...defaultParameters,
                 ...blendAdditiveParameters,
-                ...transparentDepthParameters
+                ...writeDepth ? opaqueDepthParameters : transparentDepthParameters
             },
             [
                 FillRenderData.propertyBufferSpec.binding,
@@ -388,7 +388,7 @@ export class FillBucket implements Bucket {
         this.uploaded = true;
     }
     
-    getOrCreateRenderData(painter: Painter, layer: FillStyleLayer, program: Program<any>, isOutline: boolean, image: boolean, onCreated?: (_: RenderData<any>) => void): RenderData<any> {
+    getOrCreateRenderData(painter: Painter, layer: FillStyleLayer, program: Program<any>, isOutline: boolean, image: boolean, writeDepth: boolean, onCreated?: (_: RenderData<any>) => void): RenderData<any> {
         const data = this.lumaData[layer.id];
         if (data) {
             return data;
@@ -396,7 +396,7 @@ export class FillBucket implements Bucket {
 
         let renderData;
         if (!isOutline) {
-            renderData = image ? new FillPatternRenderData(painter, layer, this, program) : new FillRenderData(painter, layer, this, program);
+            renderData = image ? new FillPatternRenderData(painter, layer, this, program, writeDepth) : new FillRenderData(painter, layer, this, program, writeDepth);
         } else {
             // TODO
         }

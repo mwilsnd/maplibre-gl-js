@@ -7,7 +7,6 @@ in float v_depth;
 
 layout (std140) uniform LineUniforms {
     highp vec4 u_color;
-    highp vec2 u_translation;
     highp float u_ratio;
     highp float u_blur;
     highp float u_opacity;

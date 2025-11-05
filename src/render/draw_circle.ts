@@ -130,7 +130,11 @@ export function drawCirclesLuma(painter: Painter, sourceCache: SourceCache, laye
         const program = painter.useProgram('luma_circle', programConfiguration, null, null, true);
 
         // TODO: calling these methods currently updates the buffers
-        const projectionParamterBuffer = painter.getProjectionParameterBuffer(segmentsState.coord, renderOptions);
+        const projectionParamterBuffer = painter.getProjectionParameterBuffer(segmentsState.coord, {
+            isRenderingGlobe: renderOptions.isRenderingGlobe,
+            isRenderingToTexture: renderOptions.isRenderingToTexture,
+            isRenderingLuma: true
+        }, 0);
         const globeBuffer = painter.getGlobeBuffer(segmentsState.tile, segmentsState.globeExtrudeScale, styleTranslate, styleTranslateAnchor);
         const renderData = segmentsState.bucket.getOrCreateRenderData(painter, layer, program, (data: CircleRenderData) => data.pipeline.setBindings({
             'ProjectionParameterUBO': projectionParamterBuffer,

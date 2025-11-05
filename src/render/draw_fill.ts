@@ -37,9 +37,19 @@ export function drawFillLuma(painter: Painter, sourceCache: SourceCache, layer: 
     
     // Draw fill
     if (painter.renderPass === pass) {
-        const depthMode = painter.getDepthModeForSublayer(
-            1, painter.renderPass === 'opaque' ? DepthMode.ReadWrite : DepthMode.ReadOnly);
-        drawFillTilesLuma(painter, sourceCache, layer, coords, depthMode, colorMode, false, isRenderingToTexture, renderOptions, renderPass);
+        drawFillTilesLuma(
+            painter,
+            sourceCache,
+            layer,
+            coords,
+            painter.renderPass === 'opaque',
+            colorMode,
+            false,
+            isRenderingToTexture,
+            renderOptions,
+            renderPass,
+            1
+        );
     }
 
     // Draw stroke
@@ -53,9 +63,19 @@ export function drawFillLuma(painter: Painter, sourceCache: SourceCache, layer: 
         // or stroke color is translucent. If we wouldn't clip to outside
         // the current shape, some pixels from the outline stroke overlapped
         // the (non-antialiased) fill.
-        const depthMode = painter.getDepthModeForSublayer(
-            layer.getPaintProperty('fill-outline-color') ? 2 : 0, DepthMode.ReadOnly);
-        drawFillTilesLuma(painter, sourceCache, layer, coords, depthMode, colorMode, true, isRenderingToTexture, renderOptions, renderPass);
+        drawFillTilesLuma(
+            painter,
+            sourceCache,
+            layer,
+            coords,
+            false,
+            colorMode,
+            true,
+            isRenderingToTexture,
+            renderOptions,
+            renderPass,
+            layer.getPaintProperty('fill-outline-color') ? 2 : 0
+        );
     }
 }
 
@@ -64,12 +84,13 @@ function drawFillTilesLuma(
     sourceCache: SourceCache,
     layer: FillStyleLayer,
     coords: Array<OverscaledTileID>,
-    depthMode: Readonly<DepthMode>,
+    writeDepth: boolean,
     colorMode: Readonly<ColorMode>,
     isOutline: boolean,
     isRenderingToTexture: boolean,
     renderOptions: RenderOptions,
-    renderPass: LumaPass) {
+    renderPass: LumaPass,
+    depthSubLayer: number) {
     const gl = painter.context.gl;
     const fillPropertyName = 'fill-pattern';
     const patternProperty = layer.paint.get(fillPropertyName);
@@ -125,11 +146,11 @@ function drawFillTilesLuma(
                     isRenderingGlobe: renderOptions.isRenderingGlobe,
                     isRenderingToTexture: renderOptions.isRenderingToTexture,
                     isRenderingLuma: true
-            });
+            }, depthSubLayer);
             const globeBuffer = painter.getGlobeBuffer(tile, 0, propertyFillTranslate, propertyFillTranslateAnchor);
 
             if (image) {
-                renderData = bucket.getOrCreateRenderData(painter, layer, program, isOutline, image && true, (data: FillPatternRenderData) => data.pipeline.setBindings({
+                renderData = bucket.getOrCreateRenderData(painter, layer, program, isOutline, image && true, writeDepth, (data: FillPatternRenderData) => data.pipeline.setBindings({
                     'ProjectionParameterUBO': projectionBuffer,
                     'GlobeProjectionUBO': globeBuffer,
                     'FillPatternUniforms': data.propertyBuffer,
@@ -138,7 +159,7 @@ function drawFillTilesLuma(
                 }));
                 (renderData as FillPatternRenderData).updateBuffers(painter, layer, bucket, tile);
             } else {
-                renderData = bucket.getOrCreateRenderData(painter, layer, program, isOutline, image && true, (data: FillRenderData) => data.pipeline.setBindings({
+                renderData = bucket.getOrCreateRenderData(painter, layer, program, isOutline, image && true, writeDepth, (data: FillRenderData) => data.pipeline.setBindings({
                     'ProjectionParameterUBO': projectionBuffer,
                     'GlobeProjectionUBO': painter.getGlobeBuffer(tile, 0, propertyFillTranslate, propertyFillTranslateAnchor),
                     'FillUniforms': data.propertyBuffer

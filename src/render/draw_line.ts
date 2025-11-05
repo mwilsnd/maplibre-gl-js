@@ -115,9 +115,12 @@ export function drawLineLuma(painter: Painter, sourceCache: SourceCache, layer: 
 
         // TODO
         const stencil = painter.stencilModeForClipping(coord);
-
-        const projectionParamterBuffer = painter.getProjectionParameterBuffer(coord, renderOptions);
-        const globeBuffer = painter.getGlobeBuffer(tile, 0, [0, 0], 'map');
+        const projectionParamterBuffer = painter.getProjectionParameterBuffer(coord, {
+            isRenderingGlobe: renderOptions.isRenderingGlobe,
+            isRenderingToTexture: renderOptions.isRenderingToTexture,
+            isRenderingLuma: true
+        }, 0);
+        const globeBuffer = painter.getGlobeBuffer(tile, 0, layer.paint.get('line-translate'), layer.paint.get('line-translate-anchor'));
         const renderData = bucket.getOrCreateRenderData(painter, layer, program, (data: LineRenderData) => data.pipeline.setBindings({
             'ProjectionParameterUBO': projectionParamterBuffer,
             'GlobeProjectionUBO': globeBuffer,

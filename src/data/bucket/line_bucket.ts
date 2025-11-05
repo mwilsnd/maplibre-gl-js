@@ -108,7 +108,6 @@ export class LineRenderData extends RenderData<LineStyleLayer> {
         },
         layout: new UniformBufferLayout({
             'u_color': 'vec4<f32>',
-            'u_translation': 'vec2<f32>',
             'u_ratio': 'f32',
             'u_blur': 'f32',
             'u_opacity': 'f32',
@@ -169,12 +168,6 @@ export class LineRenderData extends RenderData<LineStyleLayer> {
         this.propertyBuffer.write(LineRenderData.propertyBufferSpec.layout.getData({
             'u_color': programConfiguration.getBinderValueOr('line-color', 'value', [0, 0, 0, 0]),
             'u_color_t': programConfiguration.getBinderFactor('line-color', globals),
-            'u_translation': translatePosition(
-                painter.transform,
-                tile,
-                layer.paint.get('line-translate'),
-                layer.paint.get('line-translate-anchor')
-            ),
             'u_ratio':  painter.transform.getPixelScale() / pixelsToTileUnits(tile, 1, painter.transform.zoom),
             'u_blur': programConfiguration.getBinderValueOr('line-blur', 'value', 0),
             'u_opacity': programConfiguration.getBinderValueOr('line-opacity', 'value', 0),

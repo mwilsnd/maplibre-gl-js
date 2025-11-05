@@ -11,7 +11,6 @@ layout (location = 1) in vec4 a_data;
 
 layout (std140) uniform LineUniforms {
     highp vec4 u_color;
-    highp vec2 u_translation;
     highp float u_ratio;
     highp float u_blur;
     highp float u_opacity;
@@ -89,8 +88,8 @@ void main() {
     mediump vec2 offset2 = offset * a_extrude * scale * normal.y * mat2(t, -u, u, t);
 
     float adjustedThickness = projectLineThickness(pos.y);
-    vec4 projected_no_extrude = projectTile(pos + offset2 / u_ratio * adjustedThickness + u_translation);
-    vec4 projected_with_extrude = projectTile(pos + offset2 / u_ratio * adjustedThickness + u_translation + dist / u_ratio * adjustedThickness);
+    vec4 projected_no_extrude = projectTile(pos + offset2 / u_ratio * adjustedThickness + u_translate);
+    vec4 projected_with_extrude = projectTile(pos + offset2 / u_ratio * adjustedThickness + u_translate + dist / u_ratio * adjustedThickness);
     gl_Position = projected_with_extrude;
     #ifdef GLOBE
     v_depth = gl_Position.z / gl_Position.w;
