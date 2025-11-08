@@ -97,13 +97,14 @@ export class CircleRenderData extends RenderData<CircleStyleLayer> {
     };
 
     constructor(painter: Painter, layer: CircleStyleLayer, bucket: CircleBucket<any>, program: Program<any>) {
-        super(painter, layer, bucket.programConfigurations.get(layer.id), program,
+        super(painter, layer, program,
             {
                 ...defaultParameters,
                 ...blendAdditiveParameters,
                 ...transparentDepthParameters
             },
-            [CircleRenderData.propertyBuffer.binding, CircleRenderData.drawBuffer.binding]
+            [CircleRenderData.propertyBuffer.binding, CircleRenderData.drawBuffer.binding],
+            bucket.programConfigurations.get(layer.id)
         );
 
         this.propertyBuffer = painter.context.device.createBuffer({

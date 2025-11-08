@@ -27,7 +27,7 @@ import {drawFillExtrusion} from './draw_fill_extrusion';
 import {drawHillshade} from './draw_hillshade';
 import {drawColorRelief} from './draw_color_relief';
 import {drawRaster} from './draw_raster';
-import {drawBackground} from './draw_background';
+import {drawBackground, drawBackgroundLuma} from './draw_background';
 import {drawDebug, drawDebugPadding, selectDebugSource} from './draw_debug';
 import {drawCustom} from './draw_custom';
 import {drawDepth, drawCoords} from './draw_terrain';
@@ -321,9 +321,9 @@ export class Painter {
         return this.projectionParameterBuffer;
     }
 
-    getGlobeBuffer(tile: Tile, globeExtrudeScale: number, styleTranslate: [number, number], styleTranslateAnchor: 'map' | 'viewport'): Buffer {
+    getGlobeBuffer(tile: Tile | null, globeExtrudeScale: number, styleTranslate: [number, number], styleTranslateAnchor: 'map' | 'viewport'): Buffer {
         const bufferData = this.globeBufferLayout.getData({
-            'u_translate': translatePosition(this.transform, tile, styleTranslate, styleTranslateAnchor),
+            'u_translate': tile ? translatePosition(this.transform, tile, styleTranslate, styleTranslateAnchor) : [0, 0],
             'u_globe_extrude_scale': globeExtrudeScale,
             'u_device_pixel_ratio': this.pixelRatio,
             'u_camera_to_center_distance': this.transform.cameraToCenterDistance,
@@ -876,8 +876,10 @@ export class Painter {
             drawColorRelief(painter, sourceCache, layer, coords, renderOptions);
         } else if (!pass && isRasterStyleLayer(layer)) {
             drawRaster(painter, sourceCache, layer, coords, renderOptions);
-        } else if (!pass && isBackgroundStyleLayer(layer)) {
-            drawBackground(painter, sourceCache, layer, coords, renderOptions);
+        } else if (isBackgroundStyleLayer(layer)) {
+            pass ?
+                drawBackgroundLuma(painter, sourceCache, layer, coords, renderOptions, pass) :
+                drawBackground(painter, sourceCache, layer, coords, renderOptions);
         } else if (!pass && isCustomStyleLayer(layer)) {
             drawCustom(painter, sourceCache, layer, renderOptions);
         }

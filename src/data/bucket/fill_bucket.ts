@@ -68,13 +68,14 @@ export class FillRenderData extends RenderData<FillStyleLayer> {
     };
 
     constructor(painter: Painter, layer: FillStyleLayer, bucket: FillBucket, program: Program<any>, writeDepth: boolean) {
-        super(painter, layer, bucket.programConfigurations.get(layer.id), program,
+        super(painter, layer, program, 
             {
                 ...defaultParameters,
                 ...blendAdditiveParameters,
                 ...writeDepth ? opaqueDepthParameters : transparentDepthParameters
             },
             [FillRenderData.propertyBufferSpec.binding],
+            bucket.programConfigurations.get(layer.id),
             (buffer: VertexBuffer) => buffer.attributes[0].name != 'a_outline_color'
         );
 
@@ -142,7 +143,7 @@ export class FillPatternRenderData extends RenderData<FillStyleLayer> {
     };
 
     constructor(painter: Painter, layer: FillStyleLayer, bucket: FillBucket, program: Program<any>, writeDepth: boolean) {
-        super(painter, layer, bucket.programConfigurations.get(layer.id), program,
+        super(painter, layer, program,
             {
                 ...defaultParameters,
                 ...blendAdditiveParameters,
@@ -157,6 +158,7 @@ export class FillPatternRenderData extends RenderData<FillStyleLayer> {
                     name: 'u_image'
                 }
             ],
+            bucket.programConfigurations.get(layer.id),
             (buffer: VertexBuffer) => buffer.attributes[0].name != 'a_outline_color'
         );
 

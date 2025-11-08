@@ -20,6 +20,7 @@ import {Program} from './program';
 import {ProgramConfiguration} from '../data/program_configuration';
 import {VertexBuffer} from '../gl/vertex_buffer';
 import {SegmentVector} from '../data/segment';
+import { Mesh } from './mesh';
 
 export type BufferSpec = {
     binding: BindingDeclaration;
@@ -80,10 +81,10 @@ export class RenderData<LayerStyle extends StyleLayer> {
     constructor(
         painter: Painter,
         layer: LayerStyle,
-        programConfiguration: ProgramConfiguration,
         program: Program<any>,
         pipelineParams: RenderPipelineParameters,
         bufferBindings: BindingDeclaration[],
+        programConfiguration?: ProgramConfiguration,
         attributeBindingPredicate?: RenderDataAttributeBindingPredicate,
         bufferLayout_?: BufferLayout[],
         shaderAttributes?: AttributeDeclaration[])
@@ -104,7 +105,7 @@ export class RenderData<LayerStyle extends StyleLayer> {
         };
 
         let dataDrivenAttributeBindingIndex = shaderLayout.attributes.length;
-        programConfiguration.updateLumaPipelineLayouts(1, bufferLayout, shaderLayout);
+        programConfiguration?.updateLumaPipelineLayouts(1, bufferLayout, shaderLayout);
 
         this.pipeline = painter.context.device.createRenderPipeline({
             id: layer.id,
@@ -121,18 +122,20 @@ export class RenderData<LayerStyle extends StyleLayer> {
             bufferLayout: this.pipeline.bufferLayout
         });
 
-        const binderAttrs = programConfiguration.getAttributeMetadata();
-        for (const buffer of programConfiguration.getPaintVertexBuffers()) {
-            if (!binderAttrs[buffer.attributes[0].name]) {
-                continue;
-            }
+        if (programConfiguration) {
+            const binderAttrs = programConfiguration.getAttributeMetadata();
+            for (const buffer of programConfiguration.getPaintVertexBuffers()) {
+                if (!binderAttrs[buffer.attributes[0].name]) {
+                    continue;
+                }
 
-            if (attributeBindingPredicate && !attributeBindingPredicate(buffer)) {
-                continue;
-            }
+                if (attributeBindingPredicate && !attributeBindingPredicate(buffer)) {
+                    continue;
+                }
 
-            this.vertexArray.setBuffer(dataDrivenAttributeBindingIndex, buffer.getLumaBuffer());
-            dataDrivenAttributeBindingIndex++;
+                this.vertexArray.setBuffer(dataDrivenAttributeBindingIndex, buffer.getLumaBuffer());
+                dataDrivenAttributeBindingIndex++;
+            }
         }
     }
 

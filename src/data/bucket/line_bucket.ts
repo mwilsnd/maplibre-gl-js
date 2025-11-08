@@ -124,13 +124,14 @@ export class LineRenderData extends RenderData<LineStyleLayer> {
     };
 
     constructor(painter: Painter, layer: LineStyleLayer, bucket: LineBucket, program: Program<any>) {
-        super(painter, layer, bucket.programConfigurations.get(layer.id), program,
+        super(painter, layer, program,
             {
                 cullMode: 'none',
                 ...blendAdditiveParameters,
                 ...transparentDepthParameters
             },
             [LineRenderData.propertyBufferSpec.binding],
+            bucket.programConfigurations.get(layer.id),
             (buffer: VertexBuffer) => buffer.attributes[0].name != 'a_floorwidth',
             [
                 {

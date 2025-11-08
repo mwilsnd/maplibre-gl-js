@@ -70,6 +70,10 @@ import atmosphereVert from './atmosphere.vertex.glsl.g';
 import skyFrag from './sky.fragment.glsl.g';
 import skyVert from './sky.vertex.glsl.g';
 
+import lumaBackgroundFrag from './luma.background.fragment.glsl.g';
+import lumaBackgroundVert from './luma.background.vertex.glsl.g';
+import lumaBackgroundPatternFrag from './luma.background_pattern.fragment.glsl.g';
+import lumaBackgroundPatternVert from './luma.background_pattern.vertex.glsl.g';
 import lumaCircleFrag from './luma.circle.fragment.glsl.g';
 import lumaCircleVert from './luma.circle.vertex.glsl.g';
 import lumaFillFrag from './luma.fill.fragment.glsl.g';
@@ -128,6 +132,8 @@ export const shaders = {
     atmosphere: prepare(atmosphereFrag, atmosphereVert),
     sky: prepare(skyFrag, skyVert),
 
+    luma_background: prepare2(lumaBackgroundFrag, lumaBackgroundVert),
+    luma_backgroundPattern: prepare2(lumaBackgroundPatternFrag, lumaBackgroundPatternVert),
     luma_prelude: prepare2(lumaPreludeFrag, lumaPreludeVert),
     luma_projectionMercator: prepare2('', lumaProjectionMercatorVert),
     luma_projectionGlobe: prepare2('', lumaProjectionGlobeVert),
