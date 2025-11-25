@@ -33,6 +33,8 @@ import type {VectorTileLayer} from '@mapbox/vector-tile';
 import type {ExpiryData} from '../util/ajax';
 import type {QueryRenderedFeaturesOptionsStrict, QuerySourceFeatureOptionsStrict} from '../source/query_features';
 import type {DashEntry} from '../render/line_atlas';
+import {GeoJSONFeatureId} from '../source/geojson_source_diff';
+
 /**
  * The tile's state, can be:
  *
@@ -71,6 +73,7 @@ export class Tile {
     tileSize: number;
     buckets: {[_: string]: Bucket};
     latestFeatureIndex: FeatureIndex | null;
+    latestGeoJsonData: GeoJSON.GeoJSON | Map<GeoJSONFeatureId, GeoJSON.Feature>;
     latestRawTileData: ArrayBuffer;
     latestEncoding: string;
     imageAtlas: ImageAtlas;
@@ -222,12 +225,15 @@ export class Tile {
                 // Only vector tiles have rawTileData, and they won't update it for
                 // 'reloadTile'
                 this.latestRawTileData = data.rawTileData;
+                this.latestGeoJsonData = data.geoJsonData;
                 this.latestFeatureIndex.rawTileData = data.rawTileData;
+                this.latestFeatureIndex.latestFeatureData = data.geoJsonData;
                 this.latestFeatureIndex.encoding = data.encoding;
             } else if (this.latestRawTileData) {
                 // If rawTileData hasn't updated, hold onto a pointer to the last
                 // one we received
                 this.latestFeatureIndex.rawTileData = this.latestRawTileData;
+                this.latestFeatureIndex.latestFeatureData = data.geoJsonData;
                 this.latestFeatureIndex.encoding = this.latestEncoding;
             }
         }

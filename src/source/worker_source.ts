@@ -15,6 +15,7 @@ import type {IActor} from '../util/actor';
 import type {StyleLayerIndex} from '../style/style_layer_index';
 import type {SubdivisionGranularitySetting} from '../render/subdivision_granularity_settings';
 import type {DashEntry} from '../render/line_atlas';
+import {GeoJSONFeatureId} from './geojson_source_diff';
 
 /**
  * Parameters to identify a tile
@@ -77,6 +78,7 @@ export type WorkerTileResult = ExpiryData & {
     dashPositions: Record<string, DashEntry>;
     glyphAtlasImage: AlphaImage;
     featureIndex: FeatureIndex;
+    geoJsonData?: GeoJSON.GeoJSON | Map<GeoJSONFeatureId, GeoJSON.Feature>;
     collisionBoxArray: CollisionBoxArray;
     rawTileData?: ArrayBuffer;
     encoding?: string;

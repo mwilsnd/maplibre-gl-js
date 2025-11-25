@@ -567,6 +567,10 @@ export class GeoJSONSource extends Evented implements Source {
         delete tile.abortController;
         tile.unloadVectorData();
 
+        if (data) {
+            data.geoJsonData = this._data.updateable ? this._data.updateable : this._data.geojson;
+        }
+
         if (!tile.aborted) {
             tile.loadVectorData(data, this.map.painter, message ===  MessageType.reloadTile);
         }
